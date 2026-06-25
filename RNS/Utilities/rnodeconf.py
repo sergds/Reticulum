@@ -142,11 +142,14 @@ class ROM():
     PLATFORM_AVR        = 0x90
     PLATFORM_ESP32      = 0x80
     PLATFORM_NRF52      = 0x70
+    PLATFORM_RP2XXX 	= 0x60
 
     MCU_1284P           = 0x91
     MCU_2560            = 0x92
     MCU_ESP32           = 0x81
     MCU_NRF52           = 0x71
+    MCU_RP2040		= 0x61
+    MCU_RP235X		= 0x62
 
     PRODUCT_RNODE       = 0x03
     MODEL_A1            = 0xA1
@@ -225,6 +228,7 @@ class ROM():
     MODEL_DD            = 0xDD # Xiao ESP32S3 with Wio-SX1262 module, 868 MHz
 
     PRODUCT_HMBRW  = 0xF0
+    MODEL_FC	   = 0xFC
     MODEL_FF       = 0xFF
     MODEL_FD	   = 0xFD
     MODEL_FE       = 0xFE
@@ -270,6 +274,7 @@ class ROM():
     BOARD_TDECK         = 0x3B
     BOARD_HUZZAH32      = 0x34
     BOARD_GENERIC_ESP32 = 0x35
+    BOARD_GENERIC_RP2XXX = 0x65
     BOARD_LORA32_V2_0   = 0x36
     BOARD_LORA32_V2_1   = 0x37
     BOARD_TECHO         = 0x43
@@ -296,12 +301,14 @@ products = {
     ROM.PRODUCT_HELTEC_T114: "Heltec Mesh Node T114",
     ROM.PRODUCT_XIAO_S3: "Seeed XIAO ESP32S3 Wio-SX1262",
     ROM.BOARD_GENERIC_ESP32: "Generic ESP32",
+    ROM.BOARD_GENERIC_RP2XXX: "Generic RP2XXX Board"
 }
 
 platforms = {
     ROM.PLATFORM_AVR: "AVR",
     ROM.PLATFORM_ESP32:"ESP32",
     ROM.PLATFORM_NRF52: "NRF52",
+    ROM.PLATFORM_RP2XXX: "RP2XXX"
 }
 
 mcus = {
@@ -309,6 +316,8 @@ mcus = {
     ROM.MCU_2560:"ATmega2560",
     ROM.MCU_ESP32:"Espressif Systems ESP32",
     ROM.MCU_NRF52: "Nordic Semiconductor nRF52840",
+    ROM.MCU_RP2040: "Raspberry Pi RP2040",
+    ROM.MCU_RP235X: "Raspberry Pi RP235X(A/B)"
 }
 
 models = {
@@ -356,6 +365,7 @@ models = {
     0x21: [820000000, 960000000, 22, "820 - 960 MHz", "rnode_firmware_opencom_xl.zip", "SX1262 + SX1280"],
     0xDE: [420000000, 520000000, 22, "420 - 520 MHz", "rnode_firmware_xiao_esp32s3.zip", "SX1262"],
     0xDD: [850000000, 950000000, 22, "850 - 950 MHz", "rnode_firmware_xiao_esp32s3.zip", "SX1262"],
+    0xFC: [850000000, 930000000, 22, "850 - 930 MHz", None, "Unknown"],
     0xFE: [100000000, 1100000000, 17, "(Band capabilities unknown)", None, "Unknown"],
     0xFD: [850000000, 930000000, 22, "850 - 930 MHz", None, "SX1262"],
     0xFF: [100000000, 1100000000, 14, "(Band capabilities unknown)", None, "Unknown"],
