@@ -160,6 +160,7 @@ class ROM():
     MODEL_A5            = 0xA5
     MODEL_AA            = 0xAA
     MODEL_AC            = 0xAC
+    MODEL_AD            = 0xAD
 
     PRODUCT_T32_10      = 0xB2
     MODEL_BA            = 0xBA
@@ -225,6 +226,7 @@ class ROM():
 
     PRODUCT_HMBRW  = 0xF0
     MODEL_FF       = 0xFF
+    MODEL_FD	   = 0xFD
     MODEL_FE       = 0xFE
 
     ADDR_PRODUCT   = 0x00
@@ -293,6 +295,7 @@ products = {
     ROM.PRODUCT_OPENCOM_XL: "openCom XL",
     ROM.PRODUCT_HELTEC_T114: "Heltec Mesh Node T114",
     ROM.PRODUCT_XIAO_S3: "Seeed XIAO ESP32S3 Wio-SX1262",
+    ROM.BOARD_GENERIC_ESP32: "Generic ESP32",
 }
 
 platforms = {
@@ -316,6 +319,7 @@ models = {
     0xA5: [410000000, 525000000, 17, "410 - 525 MHz", "rnode_firmware_t3s3_sx127x.zip", "SX1278"],
     0xAA: [820000000, 1020000000, 17, "820 - 960 MHz", "rnode_firmware_t3s3_sx127x.zip", "SX1276"],
     0xAC: [2400000000, 2500000000, 20, "2.4 - 2.5 GHz", "rnode_firmware_t3s3_sx1280_pa.zip", "SX1280"],
+    0xAD: [830000000, 945000000, 22, "830 - 945 MHz", None, "LR1121"],
     0xA2: [410000000, 525000000, 17, "410 - 525 MHz", "rnode_firmware_ng21.zip", "SX1278"],
     0xA7: [820000000, 1020000000, 17, "820 - 1020 MHz", "rnode_firmware_ng21.zip", "SX1276"],
     0xA3: [410000000, 525000000, 17, "410 - 525 MHz", "rnode_firmware_ng20.zip", "SX1278"],
@@ -353,6 +357,7 @@ models = {
     0xDE: [420000000, 520000000, 22, "420 - 520 MHz", "rnode_firmware_xiao_esp32s3.zip", "SX1262"],
     0xDD: [850000000, 950000000, 22, "850 - 950 MHz", "rnode_firmware_xiao_esp32s3.zip", "SX1262"],
     0xFE: [100000000, 1100000000, 17, "(Band capabilities unknown)", None, "Unknown"],
+    0xFD: [850000000, 930000000, 22, "850 - 930 MHz", None, "SX1262"],
     0xFF: [100000000, 1100000000, 14, "(Band capabilities unknown)", None, "Unknown"],
 }
 
