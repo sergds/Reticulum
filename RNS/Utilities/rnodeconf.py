@@ -228,7 +228,8 @@ class ROM():
     MODEL_DD            = 0xDD # Xiao ESP32S3 with Wio-SX1262 module, 868 MHz
 
     PRODUCT_HMBRW  = 0xF0
-    MODEL_FC	   = 0xFC
+    MODEL_FA       = 0xFA
+    MODEL_FC       = 0xFC
     MODEL_FF       = 0xFF
     MODEL_FD	   = 0xFD
     MODEL_FE       = 0xFE
