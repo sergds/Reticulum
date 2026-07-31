@@ -174,12 +174,9 @@ class Identity:
         else: return None
 
     @staticmethod
-    def save_known_destinations(background=False, recombine=True):
-        # TODO: Improve the storage method so we don't have to
-        # deserialize and serialize the entire table on every
-        # save, but the only changes. It might be possible to
-        # simply overwrite on exit now that every local client
-        # disconnect triggers a data persist.
+    def save_known_destinations(background=False, recombine=False):
+        if recombine: RNS.log(f"Recombining known destinations from disk cache on persist is deprecated, argument ignored", RNS.LOG_WARNING)
+        if RNS.Transport.owner.is_connected_to_shared_instance: return
         
         try:
             if hasattr(Identity, "saving_known_destinations"):
@@ -194,28 +191,9 @@ class Identity:
 
             Identity.saving_known_destinations = True
             save_start = time.time()
+            RNS.log("Saving "+str(len(Identity.known_destinations))+" known destinations to storage...", RNS.LOG_DEBUG) if RNS.sl(RNS.LOG_DEBUG) else None
 
-            if recombine:
-                storage_known_destinations = {}
-                if os.path.isfile(RNS.Reticulum.storagepath+"/known_destinations"):
-                    try:
-                        with open(RNS.Reticulum.storagepath+"/known_destinations","rb") as file:
-                            storage_known_destinations = umsgpack.load(file)
-     
-                    except: pass
-
-                try:
-                    for destination_hash in storage_known_destinations:
-                        if not destination_hash in Identity.known_destinations:
-                            with Identity.known_destinations_lock:
-                                Identity.known_destinations[destination_hash] = storage_known_destinations[destination_hash]
-                
-                except Exception as e:
-                    RNS.log("Skipped recombining known destinations from disk, since an error occurred: "+str(e), RNS.LOG_WARNING)
-
-            RNS.log("Saving "+str(len(Identity.known_destinations))+" known destinations to storage...", RNS.LOG_VERBOSE)
             temp_file = RNS.Reticulum.storagepath+f"/known_destinations.tmp.{time.time()}"
-
             try:
                 with open(temp_file,"wb") as file: umsgpack.dump(Identity.known_destinations.copy(), file)
                 os.replace(temp_file, RNS.Reticulum.storagepath+f"/known_destinations")
@@ -226,17 +204,13 @@ class Identity:
                 except Exception as e: RNS.log(f"Could not clean up temporary file {temp_file}: {e}", RNS.LOG_WARNING)
                 raise e
 
-            save_time = time.time() - save_start
-            if save_time < 1: time_str = str(round(save_time*1000,2))+"ms"
-            else:             time_str = str(round(save_time,2))+"s"
-
-            RNS.log("Saved known destinations to storage in "+time_str, RNS.LOG_VERBOSE)
+            RNS.log(f"Saved known destinations to storage in {RNS.prettyshorttime(time.time()-save_start)}", RNS.LOG_DEBUG) if RNS.sl(RNS.LOG_DEBUG) else None
 
         except Exception as e:
             RNS.log("Error while saving known destinations to disk, the contained exception was: "+str(e), RNS.LOG_ERROR)
             RNS.trace_exception(e)
 
-        Identity.saving_known_destinations = False
+        finally: Identity.saving_known_destinations = False
 
     @staticmethod
     def load_known_destinations():
@@ -308,7 +282,7 @@ class Identity:
         except Exception as e: RNS.log(f"Error while retaining identity {RNS.prettyhexrep(identity_hash)}: {e}", RNS.LOG_ERROR)
     
     @staticmethod
-    def clean_known_destinations():
+    def clean_known_destinations(background=False):
         now        = time.time()
         st         = now
         total      = len(Identity.known_destinations)
@@ -318,9 +292,13 @@ class Identity:
         never_used = 0
         ratchetdir = RNS.Reticulum.storagepath+"/ratchets"
 
+        RNS.log(f"Cleaning known destinations{' at background priority' if background else ''}...", RNS.LOG_DEBUG) if RNS.sl(RNS.LOG_DEBUG) else None
+
         with Identity.known_destinations_lock: destination_hashes = list(Identity.known_destinations.keys())
         for destination_hash in destination_hashes:
             try:
+                if background: time.sleep(0.001) # Low priority, yield thread
+                RNS.Transport.destinations_last_cleaned = time.time()
                 if RNS.Transport.has_path(destination_hash): has_path = True
                 else:
                     has_path = False
@@ -366,7 +344,8 @@ class Identity:
                 if os.path.isfile(ratchet_path): os.unlink(ratchet_path)
             except Exception as e: RNS.log(f"Could not clean stale ratchets for {RNS.prettyhexrep(destination_hash)}: {e}", RNS.LOG_WARNING)
 
-        # RNS.log(f"Total destinations: {total}, stale: {len(stale)}, removed: {removed}, no path: {no_path}, never used: {never_used}, with path: {total-no_path}, used: {total-never_used}, retained: {retained}. Completed in {RNS.prettyshorttime(time.time()-st)}", RNS.LOG_WARNING) # TODO: Remove
+        RNS.log(f"Cleaned known destinations in {RNS.prettyshorttime(time.time()-st)}", RNS.LOG_DEBUG) if RNS.sl(RNS.LOG_DEBUG) else None
+        RNS.log(f"Total: {total}, stale: {len(stale)}, removed: {removed}, no path: {no_path}, never used: {never_used}, with path: {total-no_path}, used: {total-never_used}, retained: {retained}", RNS.LOG_PATHING) if RNS.sl(RNS.LOG_PATHING) else None
         if not RNS.Transport.owner.is_connected_to_shared_instance: Identity.save_known_destinations(recombine=False)
 
     @staticmethod

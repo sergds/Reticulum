@@ -52,7 +52,8 @@ class Interface:
 
     # Which interface modes a Transport Node should
     # actively discover paths for.
-    DISCOVER_PATHS_FOR  = [MODE_ACCESS_POINT, MODE_GATEWAY, MODE_ROAMING, MODE_INTERNAL]
+    DISCOVER_PATHS_FOR    = [MODE_ACCESS_POINT, MODE_GATEWAY, MODE_ROAMING, MODE_INTERNAL]
+    BOUNDARY_SEARCH_MODES = [MODE_BOUNDARY, MODE_GATEWAY]
 
     # How many samples to use for announce
     # frequency calculations
@@ -70,9 +71,8 @@ class Interface:
     # to hold at any given time.
     MAX_HELD_ANNOUNCES  = 256
 
-    # How long a spawned interface will be
-    # considered to be newly created. Two
-    # hours by default.
+    # Control parameters
+    DEFAULT_GRAVITY          = 0
     IC_NEW_TIME              = 2*60*60
     IC_BURST_FREQ_NEW        = 3
     IC_BURST_FREQ            = 10
@@ -97,11 +97,13 @@ class Interface:
     def __init__(self):
         self.rxb      = 0
         self.txb      = 0
+        self.gravity  = 0
         self.created  = time.time()
         self.detached = False
         self.online   = False
         self.bitrate  = 62500
         self.HW_MTU   = None
+        self.__hash   = None
 
         self.supports_discovery       = False
         self.discoverable             = False
@@ -109,6 +111,7 @@ class Interface:
         self.bootstrap_only           = False
         self.recursive_prs            = False
         self.announces_from_internal  = True
+        self.announces_to_internal    = None
         self.parent_interface         = None
         self.spawned_interfaces       = None
         self.tunnel_id                = None
@@ -139,7 +142,8 @@ class Interface:
         self.op_freq_deque = deque(maxlen=Interface.OA_FREQ_SAMPLES)
 
     def get_hash(self):
-        return RNS.Identity.full_hash(str(self).encode("utf-8"))
+        if not self.__hash: self.__hash = RNS.Identity.full_hash(str(self).encode("utf-8"))
+        return self.__hash
 
     # This is a generic function for determining when an interface
     # should activate ingress limiting. Since this can vary for
@@ -152,7 +156,7 @@ class Interface:
 
             if self.ic_burst_active:
                 if ia_freq < freq_threshold and time.time() > self.ic_burst_activated+self.ic_burst_hold:
-                    if len(self.ia_freq_deque) >= self.IC_BURST_MIN_SAMPLES: self.ic_burst_active = False
+                    if len(self.ia_freq_deque) >= self.IC_DEQUE_MIN_SAMPLE: self.ic_burst_active = False
 
                 return True
 
@@ -212,7 +216,7 @@ class Interface:
             elif self.bitrate > 62_500:          self.HW_MTU = 1024
             else:                                self.HW_MTU = None
 
-        RNS.log(f"{self} hardware MTU set to {self.HW_MTU}", RNS.LOG_DEBUG)
+        RNS.log(f"{self} hardware MTU set to {self.HW_MTU}", RNS.LOG_PATHING)
 
     def age(self):
         return time.time()-self.created
@@ -364,11 +368,9 @@ class Interface:
 
     @staticmethod
     def get_config_obj(config_in):
-        if type(config_in) == ConfigObj:
-            return config_in
+        if type(config_in) == ConfigObj: return config_in
         else:
-            try:
-                return ConfigObj(config_in)
+            try: return ConfigObj(config_in)
             except Exception as e:
                 RNS.log(f"Could not parse supplied configuration data. The contained exception was: {e}", RNS.LOG_ERROR)
                 raise SystemError("Invalid configuration data supplied")
