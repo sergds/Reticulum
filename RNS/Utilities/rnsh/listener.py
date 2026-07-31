@@ -50,7 +50,6 @@ import RNS.Utilities.rnsh.exception as exception
 import RNS.Utilities.rnsh.process as process
 import RNS.Utilities.rnsh.retry as retry
 import RNS.Utilities.rnsh.session as session
-import re
 import contextlib
 
 import pwd
@@ -112,31 +111,38 @@ def _reload_allowed_file():
 def compute_target_rns_loglevel(verbosity: int, quietness: int, base_level: int = RNS.LOG_INFO) -> int:
     try:
         target = int(base_level) + int(verbosity) - int(quietness)
-        if target < RNS.LOG_CRITICAL: target = RNS.LOG_CRITICAL
-        if target > RNS.LOG_DEBUG:    target = RNS.LOG_DEBUG
+        if target < RNS.LOG_NONE:    target = RNS.LOG_NONE
+        if target > RNS.LOG_EXTREME: target = RNS.LOG_EXTREME
         return target
     
     except Exception: return base_level
 
-async def listen(configdir, rnsconfigdir, command, identitypath=None, service_name=None, verbosity=0, quietness=0, allowed=None,
-                 allowed_file=None, disable_auth=None, announce_period=900, no_remote_command=True, remote_cmd_as_args=False,
+async def listen(configdir, rnsconfigdir, command, identitypath=None, logfile=None, service_name=None, verbosity=0, quietness=0,
+                 allowed=None, allowed_file=None, disable_auth=None, announce_period=900, no_remote_command=True, remote_cmd_as_args=False,
                  loop: asyncio.AbstractEventLoop = None):
     global _identity, _allow_all, _allowed_identity_hashes, _allowed_file, _allowed_file_identity_hashes
     global _reticulum, _cmd, _destination, _no_remote_command, _remote_cmd_as_args, _finished
 
     if not loop: loop = asyncio.get_running_loop()
-    if service_name is None or len(service_name) == 0:
-        service_name = "default"
+    if service_name is None or len(service_name) == 0: service_name = "default"
 
     RNS.log(f"Using service name {service_name}", RNS.LOG_INFO)
+    if logfile:
+        RNS.log(f"Logging to {logfile}", RNS.LOG_NOTICE)
+        logdest = RNS.LOG_FILE
+        RNS.logfile = logfile
+    else:
+        RNS.log(f"Logging to console", RNS.LOG_NOTICE)
+        logdest = RNS.LOG_STDOUT
 
     # More -v should increase verbosity (higher RNS.loglevel); -q should decrease it
     targetloglevel = compute_target_rns_loglevel(verbosity, quietness, RNS.LOG_INFO)
     _reticulum = RNS.Reticulum(configdir=rnsconfigdir, loglevel=targetloglevel)
-    _identity = rnsh.prepare_identity(identitypath, service_name)
+    _identity = rnsh.prepare_identity(identity_path=identitypath, service_name=service_name, configdir=configdir)
     _destination = RNS.Destination(_identity, RNS.Destination.IN, RNS.Destination.SINGLE, rnsh.APP_NAME)
     
     RNS.log(f"rnsh listening for commands on {RNS.prettyhexrep(_destination.hash)}", RNS.LOG_NOTICE)
+    RNS.logdest = logdest
     
     _cmd = command
     if _cmd is None or len(_cmd) == 0:
@@ -154,9 +160,8 @@ async def listen(configdir, rnsconfigdir, command, identitypath=None, service_na
     _no_remote_command = no_remote_command
     session.ListenerSession.allow_remote_command = not no_remote_command
     _remote_cmd_as_args = remote_cmd_as_args
-    if (_cmd is None or len(_cmd) == 0 or _cmd[0] is None or len(_cmd[0]) == 0) \
-            and (_no_remote_command or _remote_cmd_as_args):
-        raise Exception(f"Unable to look up shell for {os.getlogin}, cannot proceed with -A or -C and no <program>.")
+    if (_cmd is None or len(_cmd) == 0 or _cmd[0] is None or len(_cmd[0]) == 0) and (_no_remote_command or _remote_cmd_as_args):
+        raise Exception(f"Unable to look up shell for {os.getlogin()}, cannot proceed with -A or -C and no <program>.")
 
     session.ListenerSession.default_command = _cmd
     session.ListenerSession.remote_cmd_as_args = _remote_cmd_as_args

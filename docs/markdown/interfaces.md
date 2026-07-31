@@ -212,6 +212,51 @@ specify the target Yggdrasil IPv6 address and port, like so:
     target_port = 4343
 ```
 
+### Automated Blocking
+
+Listener instances of `BackboneInterface` will automatically block fast-flapping clients,
+that repeatedly connect for a short amount of time, and then disconnect. Such behavior usually
+occurs from clients trying to spam the network with announces or path requests, by connecting, dumping
+a massive amount of requests, and then disconnecting in an attempt to bypass rate limits.
+
+While such bypass attempts only have very limited effect on the amount of spam actually dumped (ingress limits
+trigger immediately once a client exceeds rate limits), the behavior is often seen anyways, and
+causes log noise and needless interface rotation. The fast-flapping block ensures such clients
+are never allocated an interface on the transport instance.
+
+Another common cause can simply be clients using implementations that are broken, or automated
+scanning tools attempting to connect to the instance.
+
+```ini
+[[Backbone Listener]]
+  type = BackboneInterface
+  enabled = yes
+  listen_on = 0.0.0.0
+  port = 4242
+
+  # Whether to enable blocking
+  block_fast_flapping = yes
+
+  # How long an IP address stays
+  # blocked, in minutes. Set to
+  # 12 hours by default.
+  fast_flapping_block_time = 720
+
+  # The minimum time, in seconds,
+  # an interface must stay connected
+  # to be considered not fast-flapping.
+  fast_flapping_threshold = 20
+
+  # Amount of fast flaps a remote
+  # IP can perform before having
+  # blocking triggered.
+  fast_flapping_grace = 5
+```
+
+The configuration options listed in the example above are the *default values*, and you do
+not need to add them for automated blocking to work, but you can use them to change the
+behavior from the defaults, if necessary.
+
 ## TCP Server Interface
 
 The TCP Server interface is suitable for allowing other peers to connect over
@@ -939,7 +984,13 @@ If you enable `discovery_encrypt` but do not configure a valid `network_identity
 **Physical Location**
 
 `latitude`, `longitude`, `height`
-: Optional physical coordinates for the interface. These are useful for mapping discovered interfaces geographically or for clients to automatically select the nearest access point. Coordinates should be in decimal degrees, height in meters.
+: Optional physical coordinates for the interface. These are useful for mapping discovered interfaces geographically or for clients to automatically select the nearest access point. Coordinates should be in decimal degrees, height in meters above mean sea level.
+
+`location_cmd`
+: Optional path to executable or script that returns the physical coordinates for the interface. This can be used instead of manually setting `latitude`, `longitude` and `height`. Reticulum expects the script to output the location data to `stdout` on a single line, separated by commas, with values as floating point numbers in the format `LAT, LON, HEIGHT`. Coordinates should be in decimal degrees, height in meters above mean sea level.
+
+#### NOTE
+The height value for interface discovery is specified in *height above mean sea level*! This is the geoid-corrected height value, and is distinct from GPS altitude. If you manually specify height, it will typically be set to what you find on a topographical map. If you are using a script to output the location data, make sure that you are using the geoid-corrected altitude, not height above the GPS ellipsoid. Most GPS systems will make both figures available.
 
 **Radio Parameters**
 
@@ -1080,6 +1131,14 @@ These can be used to control various aspects of interface behaviour.
 >   >   be a radio interface serving a wide area, where users are
 >   >   expected to connect momentarily, use the network, and then
 >   >   disappear again.
+>   > - See the [Interface Modes](#interfaces-modes) section
+>   >   below for a reference on additional modes.
+> * The `gravity` option specifies the pathing affinity of an interface.
+>   If not set specifically, and unless otherwise configured by
+>   `default_gravity` or `autoconnect_interface_gravity`,
+>   it defaults to `0`. Positive values increase pathing affinity,
+>   and negative values decrease it.
+>   
 > * The `outgoing` option sets whether an interface is allowed
 >   to transmit. Defaults to `True`. If set to `False` or `No`
 >   the interface will only receive data, and never transmit.
@@ -1149,6 +1208,10 @@ These can be used to control various aspects of interface behaviour.
 >   do not propagate out when received, paths to destinations on
 >   `internal` mode interfaces may still be resolvable by means
 >   of path requests.
+>   
+> * To allow an interface that would *otherwise not* propagate
+>   announces to `internal` mode interfaces to do so, you can
+>   configure the `announces_to_internal` option to `True`.
 >   
 
 ## Interface Modes
