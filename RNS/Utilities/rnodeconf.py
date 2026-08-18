@@ -229,6 +229,7 @@ class ROM():
 
     PRODUCT_HMBRW  = 0xF0
     MODEL_FA       = 0xFA
+    MODEL_FB       = 0xFB
     MODEL_FC       = 0xFC
     MODEL_FF       = 0xFF
     MODEL_FD	   = 0xFD
@@ -276,6 +277,7 @@ class ROM():
     BOARD_HUZZAH32      = 0x34
     BOARD_GENERIC_ESP32 = 0x35
     BOARD_GENERIC_RP2XXX = 0x65
+    BOARD_RP2040_LORA   = 0x66
     BOARD_LORA32_V2_0   = 0x36
     BOARD_LORA32_V2_1   = 0x37
     BOARD_TECHO         = 0x43
@@ -302,7 +304,8 @@ products = {
     ROM.PRODUCT_HELTEC_T114: "Heltec Mesh Node T114",
     ROM.PRODUCT_XIAO_S3: "Seeed XIAO ESP32S3 Wio-SX1262",
     ROM.BOARD_GENERIC_ESP32: "Generic ESP32",
-    ROM.BOARD_GENERIC_RP2XXX: "Generic RP2XXX Board"
+    ROM.BOARD_GENERIC_RP2XXX: "Generic RP2XXX Board",
+    ROM.BOARD_RP2040_LORA: "Waveshare RP2040-LoRa"
 }
 
 platforms = {
@@ -366,6 +369,7 @@ models = {
     0x21: [820000000, 960000000, 22, "820 - 960 MHz", "rnode_firmware_opencom_xl.zip", "SX1262 + SX1280"],
     0xDE: [420000000, 520000000, 22, "420 - 520 MHz", "rnode_firmware_xiao_esp32s3.zip", "SX1262"],
     0xDD: [850000000, 950000000, 22, "850 - 950 MHz", "rnode_firmware_xiao_esp32s3.zip", "SX1262"],
+    0xFB: [850000000, 930000000, 22, "850 - 930 Mhz", None, "SX1262"],
     0xFC: [850000000, 930000000, 22, "850 - 930 MHz", None, "Unknown"],
     0xFE: [100000000, 1100000000, 17, "(Band capabilities unknown)", None, "Unknown"],
     0xFD: [850000000, 930000000, 22, "850 - 930 MHz", None, "SX1262"],
