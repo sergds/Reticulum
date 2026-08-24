@@ -662,7 +662,7 @@ class RNodeInterface(Interface):
         RNS.log("Waiting for radio configuration validation for "+str(self)+"...", RNS.LOG_VERBOSE)
         if self.use_ble: sleep(1.00)
         elif self.use_tcp: sleep(1.5)
-        else: sleep(1.5)
+        else: sleep(0.25)
 
         if self.use_ble and self.ble != None and self.ble.device_disappeared:
             RNS.log(f"Device disappeared during radio state validation for {self}", RNS.LOG_ERROR)
@@ -682,7 +682,7 @@ class RNodeInterface(Interface):
             RNS.log("Spreading factor mismatch", RNS.LOG_ERROR)
             self.validcfg = False
         if (self.state != self.r_state):
-            RNS.log(f"Radio state mismatch {self.r_state}", RNS.LOG_ERROR)
+            RNS.log("Radio state mismatch", RNS.LOG_ERROR)
             self.validcfg = False
 
         if (self.validcfg):
