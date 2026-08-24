@@ -405,7 +405,7 @@ async def initiate(configdir: str, rnsconfigdir:str, identitypath: str, logfile:
                         chunk_segment = None
 
                         chunk_segment = None
-                        max_data_len = channel.mdu - protocol.StreamDataMessage.OVERHEAD
+                        max_data_len = channel.mdu - protocol.StreamDataMessage.HEADER_LEN
                         while chunk_len > 32 and comp_try < comp_tries:
                             chunk_segment_length = int(chunk_len/comp_try)
                             compressed_chunk = bz2.compress(buf[:chunk_segment_length])

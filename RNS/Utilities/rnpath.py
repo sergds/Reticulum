@@ -42,6 +42,7 @@ remote_link = None
 output_rst_str = "\r                                                          \r"
 def connect_remote(destination_hash, auth_identity, timeout, no_output = False, purpose="management"):
     global remote_link, reticulum
+    timeout = max(timeout, reticulum.get_medium_path_timeout())
     if not RNS.Transport.has_path(destination_hash):
         if not no_output:
             print("Path to "+RNS.prettyhexrep(destination_hash)+" requested", end=" ")
@@ -451,7 +452,7 @@ def program_setup(configdir, table, rates, drop, destination_hexhash, verbosity,
 
         i = 0
         syms = "⢄⢂⢁⡁⡈⡐⡠"
-        limit = time.time()+timeout
+        limit = time.time()+max(timeout, reticulum.get_medium_path_timeout())
         while not RNS.Transport.has_path(destination_hash) and time.time()<limit:
             time.sleep(0.1)
             print(("\b\b"+syms[i]+" "), end="")

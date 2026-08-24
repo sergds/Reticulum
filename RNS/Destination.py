@@ -206,7 +206,7 @@ class Destination:
     def _clean_ratchets(self):
         if self.ratchets != None:
             if len (self.ratchets) > self.retained_ratchets:
-                self.ratchets = self.ratchets[:Destination.RATCHET_COUNT]
+                self.ratchets = self.ratchets[:self.retained_ratchets]
 
     def _persist_ratchets(self):
         try:

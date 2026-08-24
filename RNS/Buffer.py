@@ -53,7 +53,8 @@ class StreamDataMessage(MessageBase):
     The stream id is limited to 2 bytes - 2 bit
     """
 
-    OVERHEAD     = 2 + 6  # 2 for stream data message header, 6 for channel envelope
+    HEADER_LEN   = 2               # 2 for stream data message header
+    OVERHEAD     = HEADER_LEN + 6  # 6 for channel envelope
     MAX_DATA_LEN = RNS.Link.MDU - OVERHEAD
     """
     When the Buffer package is imported, this value is
@@ -226,7 +227,7 @@ class RawChannelWriter(RawIOBase, AbstractContextManager):
         self._stream_id = stream_id
         self._channel = channel
         self._eof = False
-        self._mdu = channel.mdu - StreamDataMessage.OVERHEAD
+        self._mdu = channel.mdu - StreamDataMessage.HEADER_LEN
 
     def write(self, __b: bytes) -> int | None:
         try:
@@ -242,7 +243,7 @@ class RawChannelWriter(RawIOBase, AbstractContextManager):
                 chunk_segment_length = int(chunk_len/comp_try)
                 compressed_chunk = bz2.compress(__b[:chunk_segment_length])
                 compressed_length = len(compressed_chunk)
-                if compressed_length < StreamDataMessage.MAX_DATA_LEN and compressed_length < chunk_segment_length:
+                if compressed_length < self._mdu and compressed_length < chunk_segment_length:
                     comp_success = True
                     break
                 else:
@@ -252,7 +253,7 @@ class RawChannelWriter(RawIOBase, AbstractContextManager):
                 chunk = compressed_chunk
                 processed_length = chunk_segment_length
             else:
-                chunk = bytes(__b[:StreamDataMessage.MAX_DATA_LEN])
+                chunk = bytes(__b[:self._mdu])
                 processed_length = len(chunk)
 
             message = StreamDataMessage(self._stream_id, chunk, self._eof, comp_success)

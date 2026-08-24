@@ -70,6 +70,7 @@ class LocalClientInterface(Interface):
         self.epoll_backend    = False
         self.HW_MTU           = 262144
         self.online           = False
+        self.ifac_size        = self.DEFAULT_IFAC_SIZE
         
         if socket_path != None and RNS.Reticulum.get_instance().use_af_unix: self.socket_path = f"\0rns/{socket_path}"
         else: self.socket_path = None
@@ -382,6 +383,7 @@ class LocalServerInterface(Interface):
         self.epoll_backend = False
         self.online = False
         self.clients = 0
+        self.ifac_size = self.DEFAULT_IFAC_SIZE
         
         if socket_path != None and RNS.Reticulum.get_instance().use_af_unix: self.socket_path = f"\0rns/{socket_path}"
         else: self.socket_path = None
@@ -481,17 +483,25 @@ class LocalServerInterface(Interface):
     def process_outgoing(self, data):
         pass
 
-    def received_announce(self, from_spawned=False):
-        if from_spawned: self.ia_freq_deque.append(time.time())
+    def received_announce(self, size=0, from_spawned=False):
+        if from_spawned:
+            self.ia_freq_deque.append(time.time())
+            self.arxb += size
 
-    def sent_announce(self, from_spawned=False):
-        if from_spawned: self.oa_freq_deque.append(time.time())
+    def sent_announce(self, size=0, from_spawned=False):
+        if from_spawned:
+            self.oa_freq_deque.append(time.time())
+            self.atxb += size
 
-    def received_path_request(self, from_spawned=False):
-        if from_spawned: self.ip_freq_deque.append(time.time())
+    def received_path_request(self, size=0, from_spawned=False):
+        if from_spawned:
+            self.ip_freq_deque.append(time.time())
+            self.prxb += size
 
-    def sent_path_request(self, from_spawned=False):
-        if from_spawned: self.op_freq_deque.append(time.time())
+    def sent_path_request(self, size=0, from_spawned=False):
+        if from_spawned:
+            self.op_freq_deque.append(time.time())
+            self.ptxb += size
 
     def __str__(self):
         if self.socket_path: return "Shared Instance["+str(self.socket_path.replace("\0", ""))+"]"

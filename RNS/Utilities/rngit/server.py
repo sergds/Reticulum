@@ -46,7 +46,7 @@ from datetime import datetime, timezone
 from RNS._version import __version__
 from RNS.Utilities.rngit import APP_NAME
 from RNS.Utilities.rngit.pages import NomadNetworkNode
-from RNS.Utilities.rngit.util import san_ref, san_refs, san_sha
+from RNS.Utilities.rngit.util import san_ref, san_refs, san_sha, medium_path_timeout
 from RNS.vendor.configobj import ConfigObj
 from RNS.vendor import umsgpack as mp
 from RNS.Utilities.rnid import create_rsg, validate_rsg, get_rsg_hash
@@ -465,7 +465,7 @@ class ReticulumGitClient():
     def connect_remote(self, remote):
         destination_hash = self.parse_remote_destination_url(remote)
         print(f"Requesting path... ", end="")
-        if not RNS.Transport.await_path(destination_hash, timeout=self.path_timeout):
+        if not RNS.Transport.await_path(destination_hash, timeout=medium_path_timeout(self.path_timeout)):
             print(f"\n", end="")
             self.abort(f"Could not resolve path to {RNS.prettyhexrep(destination_hash)}")
         
@@ -479,6 +479,7 @@ class ReticulumGitClient():
         self.link = RNS.Link(self.destination)
         self.link.set_link_established_callback(self.link_established)
         self.link.set_link_closed_callback(self.link_closed)
+        self.link_timeout = max(self.link_timeout, self.link.establishment_timeout)
 
     def link_established(self, link):
         print(f"\rLink established     ", end="")

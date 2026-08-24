@@ -3786,8 +3786,8 @@ def main():
                 print("\nDevice configuration:")
                 if ec_bt == 0x73:       print(f"  Bluetooth              : Enabled")
                 else:                   print(f"  Bluetooth              : Disabled")
-                if ec_wifi == 0x01:     print(f"  WiFi                   : Enabled (Station)")
-                if ec_wifi == 0x02:     print(f"  WiFi                   : Enabled (AP)")
+                if   ec_wifi == 0x01:   print(f"  WiFi                   : Enabled (Station)")
+                elif ec_wifi == 0x02:   print(f"  WiFi                   : Enabled (AP)")
                 else:                   print(f"  WiFi                   : Disabled")
                 if ec_wifi == 0x01 or ec_wifi == 0x02:
                     if not ec_wchn:     print(f"    Channel              : Unknown")

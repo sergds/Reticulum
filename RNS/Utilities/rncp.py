@@ -401,7 +401,7 @@ def fetch(configdir, identitypath = None, verbosity = 0, quietness = 0, destinat
 
     i = 0
     syms = "⢄⢂⢁⡁⡈⡐⡠"
-    estab_timeout = time.time()+timeout
+    estab_timeout = time.time()+max(timeout, reticulum.get_medium_path_timeout())
     while not RNS.Transport.has_path(destination_hash) and time.time() < estab_timeout:
         if not silent:
             time.sleep(0.1)
@@ -431,6 +431,7 @@ def fetch(configdir, identitypath = None, verbosity = 0, quietness = 0, destinat
     )
 
     link = RNS.Link(listener_destination)
+    estab_timeout = max(estab_timeout, time.time()+link.establishment_timeout)
     while link.status != RNS.Link.ACTIVE and time.time() < estab_timeout:
         if not silent:
             time.sleep(0.1)
@@ -656,7 +657,7 @@ def send(configdir, identitypath = None, verbosity = 0, quietness = 0, destinati
 
     i = 0
     syms = "⢄⢂⢁⡁⡈⡐⡠"
-    estab_timeout = time.time()+timeout
+    estab_timeout = time.time()+max(timeout, reticulum.get_medium_path_timeout())
     while not RNS.Transport.has_path(destination_hash) and time.time() < estab_timeout:
         if not silent:
             time.sleep(0.1)
@@ -686,6 +687,7 @@ def send(configdir, identitypath = None, verbosity = 0, quietness = 0, destinati
     )
 
     link = RNS.Link(receiver_destination)
+    estab_timeout = max(estab_timeout, time.time()+link.establishment_timeout)
     while link.status != RNS.Link.ACTIVE and time.time() < estab_timeout:
         if not silent:
             time.sleep(0.1)
@@ -878,8 +880,8 @@ def main():
 
     except KeyboardInterrupt:
         print("")
-        if resource != None:
-            resource.cancel()
+        if current_resource != None:
+            current_resource.cancel()
         if link != None:
             link.teardown()
         RNS.exit()

@@ -122,6 +122,7 @@ class KISSInterface(Interface):
 
         self.packet_queue    = []
         self.flow_control    = flow_control
+        self.shared_medium   = True
         self.interface_ready = False
         self.flow_control_timeout = 5
         self.flow_control_locked  = time.time()
