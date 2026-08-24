@@ -95,6 +95,7 @@ class SerialInterface(Interface):
             raise ValueError("No port specified for serial interface")
 
         self.HW_MTU = 564
+        self.shared_medium = True
         
         self.pyserial = serial
         self.serial   = None

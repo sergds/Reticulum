@@ -814,3 +814,6 @@ class MarkdownToMicron:
 def convert_markdown_to_micron(text):
     converter = MarkdownToMicron()
     return converter.format_block(text)
+
+def medium_path_timeout(default_timeout):
+    return max(default_timeout, RNS.Reticulum.get_instance().get_medium_path_timeout())

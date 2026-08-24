@@ -169,13 +169,34 @@ class BackboneInterface(Interface):
         else:
             raise SystemError("Insufficient parameters to create listener")
 
+    __ic_burst_stats_throttle = 0.95
+    __last_ic_burst_count_check = 0
+    __last_ic_burst_count_state = 0
+    @property
+    def ic_burst_count(self):
+        if time.time() > self.__last_ic_burst_count_check + self.__ic_burst_stats_throttle:
+            self.__last_ic_burst_count_state = len([i.ic_burst_active for i in self.spawned_interfaces if i.ic_burst_active])
+            self.__last_ic_burst_count_check = time.time()
+
+        return self.__last_ic_burst_count_state
+
+    __last_ic_pr_burst_count_check = 0
+    __last_ic_pr_burst_count_state = 0
+    @property
+    def ic_pr_burst_count(self):
+        if time.time() > self.__last_ic_pr_burst_count_check + self.__ic_burst_stats_throttle:
+            self.__last_ic_pr_burst_count_state = len([i.ic_pr_burst_active for i in self.spawned_interfaces if i.ic_pr_burst_active])
+            self.__last_ic_pr_burst_count_check = time.time()
+
+        return self.__last_ic_pr_burst_count_state
 
     __last_ic_burst_check = 0
     __last_ic_burst_state = False
     @property
     def ic_burst_active(self):
-        if time.time() > self.__last_ic_burst_check + 2:
+        if time.time() > self.__last_ic_burst_check + self.__ic_burst_stats_throttle:
             self.__last_ic_burst_state = any(i.ic_burst_active for i in self.spawned_interfaces)
+            self.__last_ic_burst_check = time.time()
 
         return self.__last_ic_burst_state
 
@@ -186,9 +207,10 @@ class BackboneInterface(Interface):
     __ic_burst_activated       = 0
     @property
     def ic_burst_activated(self):
-        if time.time() > self.__ic_burst_activated_check + 2:
+        if time.time() > self.__ic_burst_activated_check + self.__ic_burst_stats_throttle:
             activated = [i.ic_burst_activated for i in self.spawned_interfaces if i.ic_burst_active]
             if activated: self.__ic_burst_activated = min(activated)
+            self.__ic_burst_activated_check = time.time()
 
         return self.__ic_burst_activated
 
@@ -200,8 +222,9 @@ class BackboneInterface(Interface):
     __last_ic_pr_burst_state = False
     @property
     def ic_pr_burst_active(self):
-        if time.time() > self.__last_ic_pr_burst_check + 2:
+        if time.time() > self.__last_ic_pr_burst_check + self.__ic_burst_stats_throttle:
             self.__last_ic_pr_burst_state = any(i.ic_pr_burst_active for i in self.spawned_interfaces)
+            self.__last_ic_pr_burst_check = time.time()
 
         return self.__last_ic_pr_burst_state
 
@@ -212,9 +235,10 @@ class BackboneInterface(Interface):
     __ic_pr_burst_activated       = 0
     @property
     def ic_pr_burst_activated(self):
-        if time.time() > self.__ic_pr_burst_activated_check + 2:
+        if time.time() > self.__ic_pr_burst_activated_check + self.__ic_burst_stats_throttle:
             activated = [i.ic_pr_burst_activated for i in self.spawned_interfaces if i.ic_pr_burst_active]
             if activated: self.__ic_pr_burst_activated = min(activated)
+            self.__ic_pr_burst_activated_check = time.time()
 
         return self.__ic_pr_burst_activated
 
@@ -266,7 +290,7 @@ class BackboneInterface(Interface):
 
         try: BackboneInterface.epoll.register(fileno, select.EPOLLIN)
         except Exception as e:
-            RNS.log(f"An error occurred while registering EPOLL_IN for file descriptor {fileno}: {e}", RNS.LOG_WARNING)
+            RNS.log(f"An error occurred while registering EPOLLIN for file descriptor {fileno}: {e}", RNS.LOG_WARNING)
 
     @staticmethod
     def deregister_fileno(fileno):
@@ -295,7 +319,7 @@ class BackboneInterface(Interface):
         if interface.socket:
             fileno = interface.socket.fileno()
             if fileno in BackboneInterface.spawned_interface_filenos:
-                try: BackboneInterface.epoll.modify(fileno, select.EPOLLOUT)
+                try: BackboneInterface.epoll.modify(fileno, select.EPOLLIN | select.EPOLLOUT)
                 except Exception as e:
                     if   str(e).endswith("No such file or directory"): pass
                     elif str(e).endswith("Bad file descriptor"):       pass
@@ -311,12 +335,12 @@ class BackboneInterface(Interface):
                 BackboneInterface.ensure_epoll()
                 try:
                     while True:
-                        events = BackboneInterface.epoll.poll(1)
                         for fileno, event in BackboneInterface.epoll.poll(1):
                             if fileno in BackboneInterface.spawned_interface_filenos:
                                 spawned_interface = BackboneInterface.spawned_interface_filenos[fileno]
                                 client_socket = spawned_interface.socket
-                                if client_socket and fileno == client_socket.fileno() and (event & select.EPOLLIN):
+                                socket_valid = client_socket and fileno == client_socket.fileno()
+                                if socket_valid and (event & select.EPOLLIN):
                                     try: received_bytes = client_socket.recv(spawned_interface.HW_MTU)
                                     except Exception as e:
                                         RNS.log(f"Error while reading from {spawned_interface}: {e}", RNS.LOG_PATHING) if RNS.sl(RNS.LOG_PATHING) else None
@@ -337,8 +361,9 @@ class BackboneInterface(Interface):
                                         except Exception as e: RNS.log(f"Error while removing spawned interface from {pif}: {e}", RNS.LOG_ERROR)
 
                                         spawned_interface.receive(received_bytes)
-                                
-                                elif client_socket and fileno == client_socket.fileno() and (event & select.EPOLLOUT):
+
+                                socket_valid_after_read = socket_valid and fileno in BackboneInterface.spawned_interface_filenos
+                                if socket_valid_after_read and (event & select.EPOLLOUT):
                                     try: written = client_socket.send(spawned_interface.transmit_buffer)
                                     except Exception as e:
                                         written = 0
@@ -375,7 +400,7 @@ class BackboneInterface(Interface):
                                     spawned_interface.txb += written
                                     if spawned_interface.parent_interface: spawned_interface.parent_interface.txb += written
                                 
-                                elif client_socket and fileno == client_socket.fileno() and event & (select.EPOLLHUP):
+                                elif socket_valid_after_read and (event & select.EPOLLHUP):
                                     BackboneInterface.deregister_fileno(fileno)
                                     try:
                                         if fileno in BackboneInterface.spawned_interface_filenos: BackboneInterface.spawned_interface_filenos.pop(fileno)
@@ -498,17 +523,25 @@ class BackboneInterface(Interface):
 
         return True
 
-    def received_announce(self, from_spawned=False):
-        if from_spawned: self.ia_freq_deque.append(time.time())
+    def received_announce(self, size=0, from_spawned=False):
+        if from_spawned:
+            self.ia_freq_deque.append(time.time())
+            self.arxb += size
 
-    def sent_announce(self, from_spawned=False):
-        if from_spawned: self.oa_freq_deque.append(time.time())
+    def sent_announce(self, size=0, from_spawned=False):
+        if from_spawned:
+            self.oa_freq_deque.append(time.time())
+            self.atxb += size
 
-    def received_path_request(self, from_spawned=False):
-        if from_spawned: self.ip_freq_deque.append(time.time())
+    def received_path_request(self, size=0, from_spawned=False):
+        if from_spawned:
+            self.ip_freq_deque.append(time.time())
+            self.prxb += size
 
-    def sent_path_request(self, from_spawned=False):
-        if from_spawned: self.op_freq_deque.append(time.time())
+    def sent_path_request(self, size=0, from_spawned=False):
+        if from_spawned:
+            self.op_freq_deque.append(time.time())
+            self.ptxb += size
 
     def process_outgoing(self, data):
         pass
@@ -531,7 +564,7 @@ class BackboneInterface(Interface):
     @property
     def blocked_ip_list(self):
         if not self.block_fast_flapping: return []
-        else: return list(self.fast_flapping.keys())
+        else: return [ip for ip in self.fast_flapping if self.fast_flapping[ip][2] > self.fast_flap_grace]
 
     @property
     def blocked_ip_count(self):

@@ -181,3 +181,8 @@ def digest(key, msg, digest):
     inner.update(msg)
     outer.update(inner.digest())
     return outer.digest()
+
+def _cd_internal(a, b): return a == b
+try: from hmac import compare_digest as _cd
+except ImportError: _cd = _cd_internal
+compare_digest = _cd

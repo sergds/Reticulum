@@ -508,7 +508,7 @@ class Identity:
             return None
 
     @staticmethod
-    def validate_announce(packet, only_validate_signature=False):
+    def validate_announce(packet, only_validate_signature=False, signal_blackholed=False):
         try:
             if packet.packet_type == RNS.Packet.ANNOUNCE:
                 keysize       = Identity.KEYSIZE//8
@@ -553,7 +553,8 @@ class Identity:
                 if len(RNS.Transport.blackholed_identities) > 0:
                     if announced_identity.hash in RNS.Transport.blackholed_identities:
                         RNS.log(f"Invalidated and dropped announce from blackholed identity {RNS.prettyhexrep(announced_identity.hash)}", RNS.LOG_EXTREME) if RNS.sl(RNS.LOG_EXTREME) else None
-                        return False
+                        if signal_blackholed: return "blackholed"
+                        else:                 return False
 
                 if announced_identity.pub != None and announced_identity.validate(signature, signed_data):
                     if only_validate_signature:

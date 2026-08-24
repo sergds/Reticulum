@@ -294,6 +294,7 @@ class RNodeInterface(Interface):
 
         self.packet_queue    = []
         self.flow_control    = flow_control
+        self.shared_medium   = True
         self.interface_ready = False
         self.announce_rate_target = None
         self.supports_discovery = True

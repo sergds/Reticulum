@@ -13,7 +13,6 @@ import RNS
 import os
 from tests.channel import MessageTest
 from RNS.Channel import MessageBase
-from RNS.Buffer import StreamDataMessage
 from RNS.Interfaces.LocalInterface import LocalClientInterface
 from math import ceil
 
@@ -27,7 +26,9 @@ fixed_keys = [
     ("08bb35f92b06a0832991165a0d9b4fd91af7b7765ce4572aa6222070b11b767092b61b0fd18b3a59cae6deb9db6d4bfb1c7fcfe076cfd66eea7ddd5f877543b9", "d13712efc45ef87674fb5ac26c37c912"),
 ]
 
-BUFFER_TEST_TARGET = 32000
+BUFFER_TEST_TARGET = 256000
+BUFFER_TEST_TARGET_SLOW = 1800
+SLOW_TEST_MARKER = b"@SLOW_TEST_MARKER"
 LINK_UP_WAIT = 0.050
 
 def targets_job(caller):
@@ -734,23 +735,16 @@ class TestLink(unittest.TestCase):
             #                              1000))
 
             if local_interface.bitrate < 1000:
-                target_bytes = 3000
+                target_bytes = BUFFER_TEST_TARGET_SLOW-len(SLOW_TEST_MARKER)
+                message = SLOW_TEST_MARKER
             else:
                 target_bytes = BUFFER_TEST_TARGET
+                message = b""
             
             random.seed(154889)
-            message = random.randbytes(target_bytes)
+            message += random.randbytes(target_bytes)
             buffer_read_target = len(message)
-            
-            # the return message will have an appendage string " back at you"
-            # for every StreamDataMessage that arrives. To verify, we need
-            # to insert that string every MAX_DATA_LEN and also at the end.
-            expected_rx_message = b""
-            for i in range(0, len(message)):
-                if i > 0 and (i % StreamDataMessage.MAX_DATA_LEN) == 0:
-                    expected_rx_message += " back at you".encode("utf-8")
-                expected_rx_message += bytes([message[i]])
-            expected_rx_message += " back at you".encode("utf-8")
+            expected_rx_message = message + " back at you".encode("utf-8")
 
             # since the segments will be received at max length for a
             # StreamDataMessage, the appended text will end up in a
@@ -760,7 +754,7 @@ class TestLink(unittest.TestCase):
             buffer.write(message)
             buffer.flush()
 
-            timeout = time.time() + 4
+            timeout = time.time() + 2.5
             while not time.time() > timeout:
                 time.sleep(1)
                 print(f"Received {len(received)} chunks so far")
@@ -864,28 +858,31 @@ def targets(yp=False):
 
         response_data = []
         def handle_buffer(ready_bytes: int):
-            global buffer_read_len, BUFFER_TEST_TARGET
+            global buffer_read_len, BUFFER_TEST_TARGET, BUFFER_TEST_TARGET_SLOW
             data = buffer.read(ready_bytes)
             buffer_read_len += len(data)
             response_data.append(data)
 
+            if SLOW_TEST_MARKER in data:
+                BUFFER_TEST_TARGET = BUFFER_TEST_TARGET_SLOW
+
             if data == "Hi there".encode("utf-8"):
                 RNS.log("Sending response")
-                for data in response_data:
-                    buffer.write(data + " back at you".encode("utf-8"))
-                    buffer.flush()
-                    buffer_read_len = 0
+                buffer.write(b"".join(response_data) + " back at you".encode("utf-8"))
+                buffer.flush()
+                response_data.clear()
+                buffer_read_len = 0
 
             if buffer_read_len == BUFFER_TEST_TARGET:
                 RNS.log("Sending response")
-                for data in response_data:
-                    buffer.write(data + " back at you".encode("utf-8"))
-                    buffer.flush()
-                    buffer_read_len = 0
+                buffer.write(b"".join(response_data) + " back at you".encode("utf-8"))
+                buffer.flush()
+                response_data.clear()
+                buffer_read_len = 0
 
         buffer = RNS.Buffer.create_bidirectional_buffer(0, 0, channel, handle_buffer)
 
-    m_rns = RNS.Reticulum("./tests/rnsconfig", logdest=RNS.LOG_FILE, loglevel=RNS.LOG_EXTREME)
+    m_rns = RNS.Reticulum("./tests/rnsconfig", logdest=RNS.LOG_FILE)
     id1 = RNS.Identity.from_bytes(bytes.fromhex(fixed_keys[0][0]))
     d1 = RNS.Destination(id1, RNS.Destination.IN, RNS.Destination.SINGLE, APP_NAME, "link", "establish")
     d1.set_proof_strategy(RNS.Destination.PROVE_ALL)

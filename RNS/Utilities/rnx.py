@@ -347,7 +347,7 @@ def execute(configdir, identitypath = None, verbosity = 0, quietness = 0, detail
 
     if not RNS.Transport.has_path(destination_hash):
         RNS.Transport.request_path(destination_hash)
-        if not spin(until=lambda: RNS.Transport.has_path(destination_hash), msg="Path to "+RNS.prettyhexrep(destination_hash)+" requested", timeout=timeout):
+        if not spin(until=lambda: RNS.Transport.has_path(destination_hash), msg="Path to "+RNS.prettyhexrep(destination_hash)+" requested", timeout=max(timeout, reticulum.get_medium_path_timeout())):
             print("Path not found")
             exit(242)
 
@@ -365,7 +365,7 @@ def execute(configdir, identitypath = None, verbosity = 0, quietness = 0, detail
         link = RNS.Link(listener_destination)
         link.did_identify = False
     
-    if not spin(until=lambda: link.status == RNS.Link.ACTIVE, msg="Establishing link with "+RNS.prettyhexrep(destination_hash), timeout=timeout):
+    if not spin(until=lambda: link.status == RNS.Link.ACTIVE, msg="Establishing link with "+RNS.prettyhexrep(destination_hash), timeout=max(timeout, link.establishment_timeout)):
         print("Could not establish link with "+RNS.prettyhexrep(destination_hash))
         exit(243)
 

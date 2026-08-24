@@ -78,6 +78,7 @@ class UDPInterface(Interface):
         self.name = name
         self.online = False
         self.bitrate = UDPInterface.BITRATE_GUESS
+        self.shared_medium = True
 
         if device != None:
             if bindip == None:

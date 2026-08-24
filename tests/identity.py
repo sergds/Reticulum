@@ -145,6 +145,34 @@ class TestIdentity(unittest.TestCase):
         print("Sign/validate 16KB chunks: "+self.size_str(b/t, "b")+"ps")
 
 
+    def test_3_timings(self):
+        import random
+        random.seed(618736)
+        print("")
+        blobs = []
+        times = []
+        t = RNS.Cryptography.Token(key=random.randbytes(64))
+        for n in range(0, 1000): blobs.append(random.randbytes(64))
+
+        for a in blobs:
+            for b in blobs:
+                st  = time.time()
+                res = t.verify_hmac(b)
+                d   = time.time()-st
+                times.append(d)
+
+        import statistics
+        tmin  = min(times)*1000000
+        tmax  = max(times)*1000000
+        tmean = (sum(times)/len(times))*1000000
+        tmed  = statistics.median(times)*1000000
+        tmdev = tmax - tmin
+        mpct  = (tmax/tmed)*100
+        print("  HMAC timings:")
+        print("    µs min/avg/med/max/mdev: "+str(round(tmin, 3))+"/"+str(round(tmean, 3))+"/"+str(round(tmed, 3))+"/"+str(round(tmax, 3))+"/"+str(round(tmdev, 3)))
+        print("    Max deviation from median: "+str(round(mpct, 1))+"%")
+        print()
+
     def test_2_encrypt(self):
         print("")
 

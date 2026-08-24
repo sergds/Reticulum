@@ -1,10 +1,49 @@
-### 2026-07-26: RNS 1.4.2
+### 2026-08-22: RNS 1.5.0
 
-This maintenance release fixes bugs in blackholed identity filtering and recursive path request handling for RNode interfaces.
+This release significantly improves the core Transport handling of RNS, with a priority-based ingress queue backend, substantially improved efficiency of both data and management traffic handling, more efficient ingress/egress limiting, and a long list of other improvements and bugfixes.
 
 **Changes**
-- Fixed a bug where recursive path requests would cause a division by zero error on uninitialized RNode interfaces.
-- Fixed slow blackholed filtering for discovered interfaces on Android in some cases.
+- Added ability to include operator LXMF address in interface discovery information
+- Added prioritized inbound traffic processing to the transport core
+- Added configurable inbound queue lengths for data, announce, path request and ingress limited traffic
+- Added early filtering for inbound traffic and improved filtering performance
+- Added per-interface protocol violation tracking
+- Added in-flight path requests tracking
+- Added request and response batching for in-flight path requests
+- Added ability to signal blackholed status in announce validation return to the API
+- Added full link MDU utilization for `Channel` and `Buffer`
+- Added inbound queue pressure and queue drop statistics to `rnstatus`
+- Added detailed announce and path request traffic flow statistics per interface to `rnstatus`
+- Added total announce and PR count/frequency stats per interface to `rnstatus`
+- Added data flow speed and composition stats to `rnstatus`
+- Added protocol violation stats to `rnstatus`
+- Added active link statistics to `rnstatus`
+- Added blocked IP listings to `rnstatus`
+- Added medium bitrate based timeout calculation helpers and RPC functions, by **Zenith**
+- Added extra timeout for discovery path requests when slow interfaces are online, by **Zenith**
+- Added adaptive timeouts to `rncp`, `rnpath`, `rnprobe` and `rnx`, by **Zenith**
+- Added adaptive timeout calculation to `rngit`, by **Zenith**
+- Improved overall Transport inbound processing speed
+- Improved path request handling significantly
+- Improved path request ingress limiting and accounting
+- Improved egress limiting responsiveness under high incoming path request load
+- Improved transport background job processing
+- Improved early rejection of packets with excessive hop counts
+- Fixed `BackboneInterface` EPOLL receive starvation and ingress control timestamp handling, by **JRG**
+- Fixed potential transport deadlock on receipts lock when callbacks sends packets, by **JRG**
+- Fixed transport state handling edge cases in path request, announce queue and pending link processing, by **JRG**
+- Fixed link watchdog not resetting on receive exceptions, by **JRG**
+- Fixed `Resource` cancellation on multi-segment resources, by **JRG**
+- Fixed `Resource` transfer part index alignment and rebinding, by **JRG**
+- Fixed stale BLE device reference in `RNodeInterface`, by **JRG**
+- Fixed ratchet cleaning retained preservation, by **JRG**
+- Fixed invalid `rnstatus` statistics handling, by **JRG**
+- Fixed various bugs in packet, link and interface handling, by **JRG**
+- Fixed per-interface burst count inconsistencies in `rnstatus` output
+- Fixed `rngit` file resource operations failing on Windows
+- Fixed `rnodeconf` config summary incorrectly displaying WiFi mode
+- Fixed speedtest example aborting transfers on stale link status
+- Updated documentation, including manual sections on queue tuning and interface discovery options
 
 **Verified Retrieval**
 You can retrieve and verify this release over Reticulum using the built-in `rngit release` utility. To retrieve only the installation `.whl` package, and the release manifest for future updates, you can use:
@@ -34,10 +73,19 @@ rnid -i bc7291552be7a58f361522990465165c -V rns_*.rsm *.rsg
 
 The `rnid` utility will then verify the signatures, and display whether they are valid. If the signature cannot be verified, the release has been tampered with and should be discarded.
 
+### 2026-07-26: RNS 1.4.2
+
+This maintenance release fixes bugs in blackholed identity filtering and recursive path request handling for RNode interfaces.
+
+**Changes**
+- Fixed a bug where recursive path requests would cause a division by zero error on uninitialized RNode interfaces.
+- Fixed slow blackholed filtering for discovered interfaces on Android in some cases.
+
 ### 2026-07-24: RNS 1.4.1
 
 This release significantly improves path convergence and stability with the new path re-balancing functionality. It also introduces interface gravity configuration, new API functionality and fixes a range of bugs and inefficiencies.
 
+**Changes**
 - Added dynamic path re-balancing
 - Added `set_max_request_size` to `Destination` API
 - Added `max_response_size` to request API
@@ -56,6 +104,7 @@ This release significantly improves path convergence and stability with the new 
 - Fixed various memory inefficiencies
 - Fixed loglevel `LOG_EXTREME` not being usable in some cases
 - Fixed historical interface discoveries not being cleaned according to blackholed identities
+
 ### 2026-07-20: RNS 1.4.0
 
 This release focuses on performance, stability and reliability improvements, particularly with resource-constrained systems in mind. It also fixes several bugs, reduces logging noise, and makes information about blocked `BackboneInterface` clients available in `ifstats`.

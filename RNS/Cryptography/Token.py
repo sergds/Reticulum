@@ -80,7 +80,7 @@ class Token():
             received_hmac = token[-32:]
             expected_hmac = HMAC.new(self._signing_key, token[:-32]).digest()
 
-            if received_hmac == expected_hmac: return True
+            if HMAC.compare_digest(received_hmac, expected_hmac): return True
             else: return False
 
 

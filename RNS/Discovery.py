@@ -10,8 +10,16 @@ from threading import Lock
 from .vendor import umsgpack as msgpack
 from collections import deque
 
+# Discoverable interfaces must include a short,
+# unique implementation-specific identifier and
+# version tag in announced discovery information.
+IMPLEMENTATION_NAME = "RNS"
+from RNS._version import __version__ as RNS_VERSION
+
 NAME            = 0xFF
 TRANSPORT_ID    = 0xFE
+TRANSPORT_IMPL  = 0xFD
+TRANSPORT_VERS  = 0xFC
 INTERFACE_TYPE  = 0x00
 TRANSPORT       = 0x01
 REACHABLE_ON    = 0x02
@@ -27,6 +35,7 @@ SPREADINGFACTOR = 0x0B
 CODINGRATE      = 0x0C
 MODULATION      = 0x0D
 CHANNEL         = 0x0E
+OP_ADDR         = 0xF0
 
 APP_NAME = "rnstransport"
 
@@ -123,7 +132,7 @@ class InterfaceAnnouncer():
                         interface.discovery_height    = dhgt
 
                 except Exception as e:
-                    RNS.log(f"Error while getting reachable_on from executable at {interface.reachable_on}: {e}", RNS.LOG_ERROR)
+                    RNS.log(f"Error while getting discovery location from executable at {interface.reachable_on}: {e}", RNS.LOG_ERROR)
                     RNS.log(f"Aborting discovery announce", RNS.LOG_ERROR)
                     return None
 
@@ -131,16 +140,21 @@ class InterfaceAnnouncer():
             info  = {INTERFACE_TYPE: interface_type,
                      TRANSPORT:      RNS.Reticulum.transport_enabled(),
                      TRANSPORT_ID:   RNS.Transport.identity.hash,
+                     TRANSPORT_IMPL: IMPLEMENTATION_NAME,
+                     TRANSPORT_VERS: RNS_VERSION,
                      NAME:           self.sanitize(interface.discovery_name),
                      LATITUDE:       interface.discovery_latitude,
                      LONGITUDE:      interface.discovery_longitude,
                      HEIGHT:         interface.discovery_height}
+
+            if interface.discovery_lxmf_address: info[OP_ADDR] = interface.discovery_lxmf_address
 
             if interface_type == "TCPClientInterface" and not interface.kiss_framing:
                 RNS.log(f"Invalid interface discovery configuration for {interface}, aborting discovery announce", RNS.LOG_ERROR)
                 return None
 
             if interface_type in ["BackboneInterface", "TCPServerInterface"]:
+                if not interface.reachable_on: return None
                 reachable_on = self.sanitize(interface.reachable_on)
 
                 if not RNS.vendor.platformutils.is_windows():
@@ -409,6 +423,11 @@ class InterfaceAnnounceHandler:
 
                         discovery_hash_material = info["transport_id"]+info["name"]
                         info["discovery_hash"] = RNS.Identity.full_hash(discovery_hash_material.encode("utf-8"))
+
+                    if info and OP_ADDR in unpacked:
+                        if type(unpacked[OP_ADDR]) not in [type(None), bytes]: raise ValueError("Invalid data in operator LXMF address field of announce")
+                        if unpacked[OP_ADDR] and len(unpacked[OP_ADDR]) == RNS.Identity.TRUNCATED_HASHLENGTH//8:
+                            info["operator_lxmf_address"] = RNS.hexrep(unpacked[OP_ADDR], delimit=False)
 
                     if self.callback and callable(self.callback): self.callback(info)
 
@@ -713,12 +732,20 @@ class InterfaceDiscovery():
                                 return
 
                             if interface_type == "I2PInterface":
-                                RNS.log(f"Auto-connecting discovered I2P interfaces is not yet implemented, aborting auto-connect", RNS.LOG_WARNING)
-                                RNS.log(f"You can obtain the configuration entry and add this interface manually instead using rnstatus -D", RNS.LOG_WARNING)
+                                RNS.log(f"Auto-connecting discovered I2P interfaces is not yet implemented, aborting auto-connect", RNS.LOG_DEBUG)
+                                RNS.log(f"You can obtain the configuration entry and add this interface manually instead using rnstatus -D", RNS.LOG_DEBUG)
                                 return
 
                             if is_ygg_ipv6(info["reachable_on"]):
                                 # TODO: Somehow detect if yggdrasil is enabled on the system
+                                return
+
+                            if is_onion_address(info["reachable_on"]):
+                                # TODO: Somehow detect if TOR is enabled on the system
+                                return
+
+                            if is_ip_address(info["reachable_on"]) and is_invalid_ip_address(info["reachable_on"]):
+                                RNS.log(f"Not auto-connecting discovered interface with invalid IP address: {info['reachable_on']}", RNS.LOG_DEBUG)
                                 return
 
                             interface_name = info["name"]
@@ -850,6 +877,15 @@ def is_ip_address(address_string):
 def is_ygg_ipv6(address_string):
     try: return ipaddress.ip_address(address_string) in ipaddress.IPv6Network("200::/7")
     except: return False
+
+def is_onion_address(address_string):
+    try: return address_string.lower().endswith(".onion")
+    except: return False
+
+INVALID_IP_ADDRESSES = ["127.0.0.1", "0.0.0.0"]
+def is_invalid_ip_address(address_string):
+    if not address_string in INVALID_IP_ADDRESSES: return False
+    else:                                          return True
 
 def is_hostname(hostname):
     if hostname[-1] == ".": hostname = hostname[:-1]
