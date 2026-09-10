@@ -148,6 +148,7 @@ class Interface:
         self.ec_pr_freq               = RNS.Reticulum.get_instance()._default_ec_pr_freq()
         self.egress_control           = RNS.Reticulum.get_instance()._default_egress_control()
         self.held_announces           = {}
+        self.transmit_buffer          = None
 
         self.ia_freq_deque = deque(maxlen=Interface.IA_FREQ_SAMPLES)
         self.oa_freq_deque = deque(maxlen=Interface.OA_FREQ_SAMPLES)
@@ -157,6 +158,24 @@ class Interface:
         self.protocol_violations = 0
         self.ifac_violations     = 0
         self.packet_filter_hits  = 0
+        self.dp_ingress_tcount   = 0
+        self.dp_ingress_bytes    = 0
+        self.dp_ingress_packets  = 0
+        self.dp_ingress_hold     = None
+        self.dp_ingress_gated    = False
+
+        self.tx_hwm              = 4*1024*1024
+        self.tx_stalled          = False
+        self.tx_drops            = 0
+        self.tx_dropped_bytes    = 0
+        self._dp_ec_prev_sent    = 0
+        self._dp_ec_zero_ticks   = 0
+        self._dp_ec_last_drain   = time.time()
+
+        self.reports_phy_stats = False
+        self.r_stat_rssi       = None
+        self.r_stat_snr        = None
+        self.r_stat_q          = None
 
     def get_hash(self):
         if not self.__hash: self.__hash = RNS.Identity.full_hash(str(self).encode("utf-8"))
@@ -231,18 +250,18 @@ class Interface:
     def optimise_mtu(self):
         if self.AUTOCONFIGURE_MTU:
             if self.bitrate   >= 1_000_000_000:  self.HW_MTU = 524288
-            elif self.bitrate > 750_000_000:     self.HW_MTU = 262144
-            elif self.bitrate > 400_000_000:     self.HW_MTU = 131072
-            elif self.bitrate > 200_000_000:     self.HW_MTU = 65536
-            elif self.bitrate > 100_000_000:     self.HW_MTU = 32768
-            elif self.bitrate > 10_000_000:      self.HW_MTU = 16384
-            elif self.bitrate > 5_000_000:       self.HW_MTU = 8192
-            elif self.bitrate > 2_000_000:       self.HW_MTU = 4096
-            elif self.bitrate > 1_000_000:       self.HW_MTU = 2048
-            elif self.bitrate > 62_500:          self.HW_MTU = 1024
+            elif self.bitrate >= 750_000_000:    self.HW_MTU = 262144
+            elif self.bitrate >= 400_000_000:    self.HW_MTU = 131072
+            elif self.bitrate >= 200_000_000:    self.HW_MTU = 65536
+            elif self.bitrate >= 100_000_000:    self.HW_MTU = 32768
+            elif self.bitrate >= 10_000_000:     self.HW_MTU = 16384
+            elif self.bitrate >= 5_000_000:      self.HW_MTU = 8192
+            elif self.bitrate >= 2_000_000:      self.HW_MTU = 4096
+            elif self.bitrate >= 1_000_000:      self.HW_MTU = 2048
+            elif self.bitrate >= 62_500:         self.HW_MTU = 1024
             else:                                self.HW_MTU = None
 
-        RNS.log(f"{self} hardware MTU set to {self.HW_MTU}", RNS.LOG_PATHING)
+        RNS.log(f"{self} hardware MTU set to {self.HW_MTU}", RNS.LOG_EXTREME)
 
     def age(self):
         return time.time()-self.created

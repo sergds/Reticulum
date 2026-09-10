@@ -302,6 +302,7 @@ class TCPClientInterface(Interface):
             raise IOError("Attempt to reconnect on a non-initiator TCP interface")
 
     def process_incoming(self, data):
+        if not data: return
         if self.online and not self.detached:
             self.rxb += len(data)
             if hasattr(self, "parent_interface") and self.parent_interface != None:

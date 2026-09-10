@@ -43,7 +43,7 @@ elif cp.PROVIDER == cp.PROVIDER_PYCA:
 class AES_128_CBC:
     @staticmethod
     def encrypt(plaintext, key, iv):
-        if len(key) != 16: raise ValueError(f"Invalid key length {len(key)*8} for {self}")
+        if len(key) != 16: raise ValueError(f"Invalid key length {len(key)*8} for AES_128_CBC")
         if cp.PROVIDER == cp.PROVIDER_INTERNAL:
             cipher = AES128(key)
             return cipher.encrypt(plaintext, iv)
@@ -60,7 +60,7 @@ class AES_128_CBC:
 
     @staticmethod
     def decrypt(ciphertext, key, iv):
-        if len(key) != 16: raise ValueError(f"Invalid key length {len(key)*8} for {self}")
+        if len(key) != 16: raise ValueError(f"Invalid key length {len(key)*8} for AES_128_CBC")
         if cp.PROVIDER == cp.PROVIDER_INTERNAL:
             cipher = AES128(key)
             return cipher.decrypt(ciphertext, iv)
@@ -78,7 +78,7 @@ class AES_128_CBC:
 class AES_256_CBC:
     @staticmethod
     def encrypt(plaintext, key, iv):
-        if len(key) != 32: raise ValueError(f"Invalid key length {len(key)*8} for {self}")
+        if len(key) != 32: raise ValueError(f"Invalid key length {len(key)*8} for AES_256_CBC")
         if cp.PROVIDER == cp.PROVIDER_INTERNAL:
             cipher = AES256(key)
             return cipher.encrypt_cbc(plaintext, iv)
@@ -95,7 +95,7 @@ class AES_256_CBC:
 
     @staticmethod
     def decrypt(ciphertext, key, iv):
-        if len(key) != 32: raise ValueError(f"Invalid key length {len(key)*8} for {self}")
+        if len(key) != 32: raise ValueError(f"Invalid key length {len(key)*8} for AES_256_CBC")
         if cp.PROVIDER == cp.PROVIDER_INTERNAL:
             cipher = AES256(key)
             return cipher.decrypt_cbc(ciphertext, iv)

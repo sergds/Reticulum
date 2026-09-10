@@ -55,19 +55,12 @@ def main():
         parser.add_argument("--config", action="store", default=None, help="path to alternative Reticulum config directory", type=str)
         parser.add_argument('-v', '--verbose', action='count', default=0)
         parser.add_argument('-q', '--quiet', action='count', default=0)
-        parser.add_argument("--exampleconfig", action='store_true', default=False, help="print verbose configuration example to stdout and exit")
         parser.add_argument("--version", action="version", version="rnir {version}".format(version=__version__))
         
         args = parser.parse_args()
 
-        if args.exampleconfig:
-            print(__example_rns_config__)
-            exit()
-
-        if args.config:
-            configarg = args.config
-        else:
-            configarg = None
+        if args.config: configarg = args.config
+        else:           configarg = None
 
         program_setup(configdir = configarg, verbosity=args.verbose, quietness=args.quiet)
 

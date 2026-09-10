@@ -4897,6 +4897,11 @@ announce_interval = 360
 
 # blocked_identities = d31aeea49873006f13b3415520666a4e
 
+# To make it easier to handle scrapers, crawlers, slopware
+# and other annoyances, you can block unidentified peers by
+# adding the null_ident hash to to blocked identities.
+
+# blocked_identities = d7db22f63b453c23bb0688dde565b7c1
 
 [repositories]
 

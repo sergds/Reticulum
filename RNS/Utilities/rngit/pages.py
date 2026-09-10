@@ -709,7 +709,7 @@ class NomadNetworkNode():
             content = self.m_heading("Invalid Path", 1) + "\n\nNo file path specified.\n"
             return self.render_template(content, st=st)
 
-        file_path = file_path.lstrip("./").replace("/./", "/")
+        file_path = file_path.removeprefix("./").replace("/./", "/")
         file_ext = os.path.splitext(file_path)[1].lower()
         renderable = file_ext in self.RENDERABLE_EXTS
         if not renderable: raw = True; render = False
@@ -1325,6 +1325,14 @@ class NomadNetworkNode():
             content = self.m_heading("Error", 2) + "\nThe requested repository was not found.\n"
             return self.render_template(content, st=st)
 
+        content_parts = []
+        nav_parts = []
+
+        # Breadcrumb navigation
+        breadcrumb = f">>\n{self.m_link('Node', self.PATH_INDEX)} / {self.m_link(group_name, self.PATH_GROUP, g=group_name)} / {self.m_link(repo_name, self.PATH_REPO, g=group_name, r=repo_name)} / {self.m_link('releases', self.PATH_RELEASES, g=group_name, r=repo_name)} / {tag}"
+        nav_parts.append(breadcrumb + "\n")
+        nav_content = "".join(nav_parts)
+
         releases_path = f"{repo['path']}.releases"
         if tag == "latest":
             releases, latest_release = self.owner.releases_list_data(releases_path)
@@ -1337,14 +1345,6 @@ class NomadNetworkNode():
                 tag = recent_releases[0]["tag"]
 
             else: tag = latest_release
-
-        content_parts = []
-        nav_parts = []
-
-        # Breadcrumb navigation
-        breadcrumb = f">>\n{self.m_link('Node', self.PATH_INDEX)} / {self.m_link(group_name, self.PATH_GROUP, g=group_name)} / {self.m_link(repo_name, self.PATH_REPO, g=group_name, r=repo_name)} / {self.m_link('releases', self.PATH_RELEASES, g=group_name, r=repo_name)} / {tag}"
-        nav_parts.append(breadcrumb + "\n")
-        nav_content = "".join(nav_parts)
 
         release_dir = os.path.join(releases_path, tag)
         
@@ -1671,7 +1671,7 @@ class NomadNetworkNode():
 
         repo = self.get_accessible_repository(remote_identity, group_name, repo_name)
         if not repo:
-            RNS.log(f"Repository not found or no access for artifact request {group_name}/{repo_name}/{tag}/{artifact}", RNS.LOG_WARNING)
+            RNS.log(f"Repository not found or no access for artifact request {group_name}/{repo_name}/{tag}/{artifact}", RNS.LOG_DEBUG)
             return None
 
         releases_path = f"{repo['path']}.releases"
@@ -1729,7 +1729,7 @@ class NomadNetworkNode():
 
         repo = self.get_accessible_repository(remote_identity, group_name, repo_name)
         if not repo:
-            RNS.log(f"Repository not found or no access for download request {group_name}/{repo_name}/{ref}/{file_path}", RNS.LOG_WARNING)
+            RNS.log(f"Repository not found or no access for download request {group_name}/{repo_name}/{ref}/{file_path}", RNS.LOG_DEBUG)
             return None
 
         repo_path = repo["path"]
@@ -1783,7 +1783,7 @@ class NomadNetworkNode():
 
         repo = self.get_accessible_repository(remote_identity, group_name, repo_name)
         if not repo:
-            RNS.log(f"Repository not found or no access for workdoc download request {group_name[:128]}/{repo_name[:128]}/{doc_id}", RNS.LOG_WARNING)
+            RNS.log(f"Repository not found or no access for workdoc download request {group_name[:128]}/{repo_name[:128]}/{doc_id}", RNS.LOG_DEBUG)
             return None
 
         doc_access = self.resolve_doc_permission(remote_identity, group_name, repo_name, doc_id, self.owner.PERM_READ)

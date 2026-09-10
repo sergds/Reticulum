@@ -1,3 +1,87 @@
+### 2026-08-28: RNS 1.5.2
+
+This maintenance release fixes a regression in resource transfers that was introduced in 1.5.1, an `I2PInterface` bug, and sets dataplane control parameters to default values that are actually sensible. If you installed `1.5.1`, it's update time again, baby.
+
+**Changes**
+- Tuned dataplane control parameters
+- Added example for blocking unidentified page node peers to `rngit` default config
+- Fixed regression in resource transfers causing some `rngit` file downloads to fail
+- Fixed keepalive frames being passed to transport core on `I2PInterface`
+
+**Verified Retrieval**
+You can retrieve and verify this release over Reticulum using the built-in `rngit release` utility. To retrieve only the installation `.whl` package, and the release manifest for future updates, you can use:
+
+```sh
+rngit release rns://7649a50d84610232d1416b41d2896aff/reticulum/reticulum fetch "latest:rns-*.whl" --signer bc7291552be7a58f361522990465165c
+```
+
+To download all artifacts, including the documentation and source archive, you can use the following command:
+
+```sh
+rngit release rns://7649a50d84610232d1416b41d2896aff/reticulum/reticulum fetch latest:all --signer bc7291552be7a58f361522990465165c
+```
+
+**Release Signatures**
+Release artifacts include a signed `rsm` release manifest and `rsg` signature files that can be validated against the RNS release signing identity `<bc7291552be7a58f361522990465165c>` using `rngit` or `rnid`. To perform an offline verification of all release artifacts using a manifest:
+
+```sh
+rngit release rns_*.rsm verify --signer bc7291552be7a58f361522990465165c
+```
+
+To verify release artifacts using individual `rsg` files, while also verifying the manifest itself, download the `rsm` and `rsg` signatures, make sure they are in the same folder as the release artifact, and run `rnid` signature verification with the release identity as the required signer:
+
+```sh
+rnid -i bc7291552be7a58f361522990465165c -V rns_*.rsm *.rsg
+```
+
+The `rnid` utility will then verify the signatures, and display whether they are valid. If the signature cannot be verified, the release has been tampered with and should be discarded.
+
+### 2026-08-28: RNS 1.5.1
+
+This release focuses on dataplane control, memory bounding and transport throughput, with adaptive ingress and egress control for interfaces, a new (and very efficient) zero-copy coalescing transmit buffer, an optimized HDLC deframer, and a range of other improvements to the inbound packet processing paths. It also introduces support for live profiling, and various new diagnostics output in `rnstatus`, along with a number of bug fixes and general improvements.
+
+**Changes**
+- Added adaptive dataplane egress control
+- Added adaptive dataplane ingress control
+- Added zero-copy coalescing transmit buffers to interfaces using the `BackboneInterface` backend
+- Added early protocol violation checks for invalid frames
+- Added transport implementation name and version to discovery information requirements
+- Added full live profiling to the built-in `Profiler` primitive, by **K8**
+- Added the `@RNS.Profiler.profile` decorator, by **K8**
+- Added support for indefinitely running, reentrant profilers with bounded capture, by **K8**
+- Added live profiling results output to `rnstatus`, by **K8**
+- Added PPS statistics to `rnstatus`
+- Added interface MTU display to `rnstatus`
+- Added interface TX drop statistics to `rnstatus`
+- Added interface TX buffer size output to `rnstatus`
+- Added throughput benchmarker to the test suite
+- Added support for natively compiled module builds, and the ability to load compiled modules when available
+- Added module compilation status reporting from in-wheel build information
+- Added parity tests for HDLC, IFAC and HKDF against the legacy implementations
+- Added shared medium hints to interfaces
+- Improved memory and CPU consumption under high traffic loads
+- Improved traffic class handling
+- Optimized HKDF to ~5.7x performance, if this worries you, **good**; then see the full parity and standard vector test suite and read the code
+- Optimized inbound and outbound IFAC handling to ~90x performance on large frames
+- Optimized inbound packet processing by reducing lock acquisitions and path table contention
+- Optimized lookups for pending and active links using hash maps for lookup operations
+- Optimized announce validation by caching signature validation results, significantly lowering announce storm CPU load
+- Optimized the HDLC deframer
+- Reduced redundant packet hashing in inbound processing
+- Tuned default inbound queue lengths and announce queuing
+- Tuned automatic interface MTU configuration
+- Fixed `Resource` transfers failing when initialized from stream-based data sources that fell outside `MAX_EFFICIENT_SIZE`
+- Fixed an invalid prefix stripping bug in the `rngit` page server (`.something` files not viewable)
+- Fixed RSSI/SNR reporting regression
+- Fixed keepalive handling on non-epoll backends
+- Fixed a bug in `rngit` page navigation content initialization order
+- Fixed the `rngit` page node not being able to serve in-tree downloads for large files
+- Fixed `rnstatus` blocked IP listing including IPs that were actually not yet blocked
+- Fixed `rnstatus` traffic totals counting the local shared instance inter-app transit in totals
+- Fixed various minor bugs in `rnsh`, `rnir`, identity handling
+- Fixed a latent bug in the AES module, where an exception would not resolve it's exception description correctly, and instead raise another exception.
+- Removed dead Python 2 code from `umsgpack`
+
 ### 2026-08-22: RNS 1.5.0
 
 This release significantly improves the core Transport handling of RNS, with a priority-based ingress queue backend, substantially improved efficiency of both data and management traffic handling, more efficient ingress/egress limiting, and a long list of other improvements and bugfixes.
@@ -44,34 +128,6 @@ This release significantly improves the core Transport handling of RNS, with a p
 - Fixed `rnodeconf` config summary incorrectly displaying WiFi mode
 - Fixed speedtest example aborting transfers on stale link status
 - Updated documentation, including manual sections on queue tuning and interface discovery options
-
-**Verified Retrieval**
-You can retrieve and verify this release over Reticulum using the built-in `rngit release` utility. To retrieve only the installation `.whl` package, and the release manifest for future updates, you can use:
-
-```sh
-rngit release rns://7649a50d84610232d1416b41d2896aff/reticulum/reticulum fetch "latest:rns-*.whl" --signer bc7291552be7a58f361522990465165c
-```
-
-To download all artifacts, including the documentation and source archive, you can use the following command:
-
-```sh
-rngit release rns://7649a50d84610232d1416b41d2896aff/reticulum/reticulum fetch latest:all --signer bc7291552be7a58f361522990465165c
-```
-
-**Release Signatures**
-Release artifacts include a signed `rsm` release manifest and `rsg` signature files that can be validated against the RNS release signing identity `<bc7291552be7a58f361522990465165c>` using `rngit` or `rnid`. To perform an offline verification of all release artifacts using a manifest:
-
-```sh
-rngit release rns_*.rsm verify --signer bc7291552be7a58f361522990465165c
-```
-
-To verify release artifacts using individual `rsg` files, while also verifying the manifest itself, download the `rsm` and `rsg` signatures, make sure they are in the same folder as the release artifact, and run `rnid` signature verification with the release identity as the required signer:
-
-```sh
-rnid -i bc7291552be7a58f361522990465165c -V rns_*.rsm *.rsg
-```
-
-The `rnid` utility will then verify the signatures, and display whether they are valid. If the signature cannot be verified, the release has been tampered with and should be discarded.
 
 ### 2026-07-26: RNS 1.4.2
 
