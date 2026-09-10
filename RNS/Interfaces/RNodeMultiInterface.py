@@ -269,6 +269,7 @@ class RNodeMultiInterface(Interface):
         self.r_stat_tx   = None
         self.r_stat_rssi = None
         self.r_stat_snr  = None
+        self.r_stat_q    = None
         self.r_st_alock  = None
         self.r_lt_alock  = None
         self.r_random    = None
@@ -276,6 +277,8 @@ class RNodeMultiInterface(Interface):
         self.packet_queue    = []
         self.interface_ready = False
         self.announce_rate_target = None
+        self.reports_phy_stats    = True
+
 
         self.validcfg  = True
         if id_interval != None and id_callsign != None:
@@ -1125,10 +1128,9 @@ class RNodeSubInterface(Interface):
             self.bitrate = 0
 
     def process_incoming(self, data):
+        if not data: return
         self.rxb += len(data)
         self.owner.inbound(data, self)
-        self.r_stat_rssi = None
-        self.r_stat_snr = None
 
     def process_outgoing(self,data):
         if self.online:

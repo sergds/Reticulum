@@ -108,8 +108,8 @@ class Reticulum:
     discovery significantly increases throughput over fast links.
     """
 
-    MAX_QUEUED_ANNOUNCES = 16384
-    QUEUED_ANNOUNCE_LIFE = 60*60*24
+    MAX_QUEUED_ANNOUNCES = 4096
+    QUEUED_ANNOUNCE_LIFE = 60*60*3
 
     ANNOUNCE_CAP = 2
     """
@@ -189,8 +189,6 @@ class Reticulum:
             if not Reticulum.__interface_detach_ran: RNS.Transport.detach_interfaces()
             RNS.Transport.exit_handler()
             RNS.Identity.exit_handler()
-
-            if RNS.Profiler.ran(): RNS.Profiler.results()
 
             RNS.loglevel = RNS.LOG_NONE
             RNS._detach_stdout()
@@ -736,6 +734,11 @@ class Reticulum:
 
         if self.local_socket_path == None and self.use_af_unix:
             self.local_socket_path = "default"
+
+        dql = RNS.Reticulum.default_data_queue_length() or RNS.Transport.INBOUND_DA_QUEUE_LENGTH
+        BackboneInterface.BackboneInterface.DP_IC_HIGH_WM  = max(4, int((BackboneInterface.BackboneInterface.DP_IC_HIGH_WM_PCT/100.0) * dql))
+        BackboneInterface.BackboneInterface.DP_IC_MID_WM   = max(2, int((BackboneInterface.BackboneInterface.DP_IC_MID_WM_PCT/100.0)  * dql))
+        BackboneInterface.BackboneInterface.DP_IC_LOW_WM   = max(0, int((BackboneInterface.BackboneInterface.DP_IC_LOW_WM_PCT/100.0)  * dql))
 
         self.__start_local_interface()
 
@@ -1293,6 +1296,7 @@ class Reticulum:
                     if path == "packet_rssi":              self.rpc_return(conn, self.get_packet_rssi(call["packet_hash"]))
                     if path == "packet_snr":               self.rpc_return(conn, self.get_packet_snr(call["packet_hash"]))
                     if path == "packet_q":                 self.rpc_return(conn, self.get_packet_q(call["packet_hash"]))
+                    if path == "profiling_results":        self.rpc_return(conn, self.get_profiling_results())
                     if path == "blackholed_identities":    self.rpc_return(conn, self.get_blackholed_identities())
                     if path == "is_blackholed":            self.rpc_return(conn, self.is_blackholed(call["identity_hash"]))
 
@@ -1524,6 +1528,7 @@ class Reticulum:
                 ifstats["short_name"]                  = str(interface.name)
                 ifstats["hash"]                        = interface.get_hash()
                 ifstats["type"]                        = str(type(interface).__name__)
+                ifstats["mtu"]                         = interface.HW_MTU
                 ifstats["rxb"]                         = interface.rxb
                 ifstats["txb"]                         = interface.txb
                 ifstats["arxb"]                        = interface.arxb
@@ -1534,6 +1539,10 @@ class Reticulum:
                 ifstats["ptxb"]                        = interface.ptxb
                 ifstats["prxc"]                        = interface.prxc
                 ifstats["ptxc"]                        = interface.ptxc
+                ifstats["txdrp"]                       = interface.tx_drops
+                ifstats["txdrb"]                       = interface.tx_dropped_bytes
+                ifstats["txstalled"]                   = interface.tx_stalled
+                ifstats["txbuffered"]                  = len(interface.transmit_buffer) if interface.transmit_buffer else 0
                 ifstats["incoming_announce_frequency"] = interface.incoming_announce_frequency()
                 ifstats["outgoing_announce_frequency"] = interface.outgoing_announce_frequency()
                 ifstats["incoming_pr_frequency"]       = interface.incoming_pr_frequency()
@@ -1846,6 +1855,17 @@ class Reticulum:
                     return entry[1]
 
             return None
+
+    def get_profiling_results(self):
+        if self.is_connected_to_shared_instance:
+            rpc_connection = self.get_rpc_client()
+            rpc_connection.send_bytes(mp.packb({"get": "profiling_results"}))
+            response = mp.unpackb(rpc_connection.recv_bytes())
+            return response
+
+        else:
+            if RNS.Profiler.ran(): return RNS.Profiler.results()
+            else: return None
 
     def halt_interface(self, interface):
         pass

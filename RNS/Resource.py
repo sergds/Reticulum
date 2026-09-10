@@ -30,6 +30,7 @@
 
 import RNS
 import os
+import io
 import bz2
 import math
 import time
@@ -280,6 +281,19 @@ class Resource:
 
         if hasattr(data, "read"):
             if data_size == None: data_size = os.stat(data.name).st_size
+            if data_size == 0:
+                if isinstance(data, io.BufferedReader):
+                    RNS.log(f"Attempting to proxy stream data...", RNS.LOG_DEBUG)
+                    stream_proxy = tempfile.TemporaryFile()
+                    stream_proxy.write(data.read())
+                    stream_proxy.flush(); stream_proxy.seek(0)
+                    data_size = os.stat(stream_proxy.name).st_size
+                    if data_size: RNS.log(f"Stream proxy succeeded, final data size is {RNS.prettysize(data_size)}", RNS.LOG_DEBUG)
+                    else: RNS.log(f"Resource initialisation received an invalid readable input, or stream data that could not be proxied, the transfer will likely fail.", RNS.LOG_WARNING)
+                    data = stream_proxy
+
+                else: RNS.log(f"Got zero-sized readable at resource initialisation, the transfer will likely.", RNS.LOG_WARNING)
+
             self.total_size = data_size + self.metadata_size
 
             if self.total_size <= Resource.MAX_EFFICIENT_SIZE:
@@ -290,12 +304,6 @@ class Resource:
                 data.close()
 
             else:
-                # self.total_segments = ((data_size-1)//Resource.MAX_EFFICIENT_SIZE)+1
-                # self.segment_index  = segment_index
-                # self.split          = True
-                # seek_index          = segment_index-1
-                # seek_position       = seek_index*Resource.MAX_EFFICIENT_SIZE
-
                 self.total_segments = ((self.total_size-1)//Resource.MAX_EFFICIENT_SIZE)+1
                 self.segment_index  = segment_index
                 self.split          = True
@@ -372,10 +380,8 @@ class Resource:
         self.req_hashlist = []
         self.receiver_min_consecutive_height = 0
 
-        if timeout != None:
-            self.timeout = timeout
-        else:
-            self.timeout = self.link.rtt * self.link.traffic_timeout_factor
+        if timeout != None: self.timeout = timeout
+        else:               self.timeout = self.link.rtt * self.link.traffic_timeout_factor
 
         if data != None:
             self.initiator         = True
@@ -384,18 +390,21 @@ class Resource:
 
             compression_began = time.time()
             if self.auto_compress and data_size <= self.auto_compress_limit:
-                RNS.log("Compressing resource data...", RNS.LOG_EXTREME) if RNS.sl(RNS.LOG_EXTREME) else None
-                self.compressed_data   = bz2.compress(self.uncompressed_data)
-                RNS.log("Compression completed in "+str(round(time.time()-compression_began, 3))+" seconds", RNS.LOG_EXTREME) if RNS.sl(RNS.LOG_EXTREME) else None
-            else:
-                self.compressed_data   = self.uncompressed_data
+                RNS.log("Compressing resource data...", RNS.LOG_DEBUG) if RNS.sl(RNS.LOG_DEBUG) else None
+                try:
+                    self.compressed_data = bz2.compress(self.uncompressed_data)
+                    RNS.log("Compression completed in "+str(round(time.time()-compression_began, 3))+" seconds", RNS.LOG_DEBUG) if RNS.sl(RNS.LOG_DEBUG) else None
+                except Exception as e:
+                    RNS.log(f"Could not auto-compress resource data, falling back to uncompressed transfer: {e}", RNS.LOG_DEBUG)
+                    self.compressed_data = self.uncompressed_data
+            else: self.compressed_data = self.uncompressed_data
 
             self.uncompressed_size = len(self.uncompressed_data)
             self.compressed_size   = len(self.compressed_data)
 
             if (self.compressed_size < self.uncompressed_size and auto_compress):
                 saved_bytes = len(self.uncompressed_data) - len(self.compressed_data)
-                RNS.log("Compression saved "+str(saved_bytes)+" bytes, sending compressed", RNS.LOG_EXTREME) if RNS.sl(RNS.LOG_EXTREME) else None
+                RNS.log("Compression saved "+str(saved_bytes)+" bytes, sending compressed", RNS.LOG_DEBUG) if RNS.sl(RNS.LOG_DEBUG) else None
 
                 self.data  = b""
                 self.data += RNS.Identity.get_random_hash()[:Resource.RANDOM_HASH_SIZE]
@@ -1085,7 +1094,7 @@ class Resource:
         if self.next_segment: self.next_segment.cancel()
 
         if self.status == Resource.CORRUPT:
-            self.link.cancel_incoming_resource(self)
+            if self in self.link.incoming_resources: self.link.cancel_incoming_resource(self)
             self.reject(self.advertisement_packet)
             self.link.teardown()
 
@@ -1097,14 +1106,14 @@ class Resource:
                         cancel_packet = RNS.Packet(self.link, self.hash, context=RNS.Packet.RESOURCE_ICL)
                         cancel_packet.send()
                     except Exception as e: RNS.log("Could not send resource cancel packet, the contained exception was: "+str(e), RNS.LOG_ERROR)
-                self.link.cancel_outgoing_resource(self)
+                if self in self.link.outgoing_resources: self.link.cancel_outgoing_resource(self)
             else:
                 if self.link.status == RNS.Link.ACTIVE:
                     try:
                         cancel_packet = RNS.Packet(self.link, self.hash, context=RNS.Packet.RESOURCE_RCL)
                         cancel_packet.send()
                     except Exception as e: RNS.log("Could not send resource cancel packet, the contained exception was: "+str(e), RNS.LOG_ERROR)
-                self.link.cancel_incoming_resource(self)
+                if self in self.link.incoming_resources: self.link.cancel_incoming_resource(self)
             
             if self.callback != None:
                 try:
@@ -1117,7 +1126,7 @@ class Resource:
         if self.status < Resource.COMPLETE:
             if self.initiator:
                 self.status = Resource.REJECTED
-                self.link.cancel_outgoing_resource(self)
+                if self in self.link.outgoing_resources: self.link.cancel_outgoing_resource(self)
                 if self.callback != None:
                     try:
                         self.link.resource_concluded(self)
@@ -1238,7 +1247,9 @@ class Resource:
         return self.compressed
 
     def __str__(self):
-        return "<"+RNS.hexrep(self.hash,delimit=False)+"/"+RNS.hexrep(self.link.link_id,delimit=False)+">"
+        if hasattr(self, "hash") and self.hash and hasattr(self, "link") and self.link:
+            return "<"+RNS.hexrep(self.hash,delimit=False)+"/"+RNS.hexrep(self.link.link_id,delimit=False)+">"
+        else: return "<initializing_resource/unknown>"
 
 
 class ResourceAdvertisement:

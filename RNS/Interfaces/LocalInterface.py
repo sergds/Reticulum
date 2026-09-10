@@ -30,6 +30,8 @@
 
 from RNS.Interfaces.Interface import Interface
 from RNS.Interfaces.BackboneInterface import BackboneInterface
+from RNS.Interfaces.util.TransmitBuffer import TransmitBuffer
+from RNS.Interfaces.util.HDLC import HDLC, ReceiveBuffer
 import socketserver
 import threading
 import socket
@@ -38,17 +40,6 @@ import sys
 import os
 import RNS
 from threading import Lock
-
-class HDLC():
-    FLAG              = 0x7E
-    ESC               = 0x7D
-    ESC_MASK          = 0x20
-
-    @staticmethod
-    def escape(data):
-        data = data.replace(bytes([HDLC.ESC]), bytes([HDLC.ESC, HDLC.ESC^HDLC.ESC_MASK]))
-        data = data.replace(bytes([HDLC.FLAG]), bytes([HDLC.ESC, HDLC.FLAG^HDLC.ESC_MASK]))
-        return data
 
 class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     def server_bind(self):
@@ -84,8 +75,9 @@ class LocalClientInterface(Interface):
         self.detached         = False
         self.name             = name
         self.mode             = RNS.Interfaces.Interface.Interface.MODE_FULL
-        self.frame_buffer     = b""
-        self.transmit_buffer  = b""
+        self.transmit_buffer  = TransmitBuffer()
+        self.receive_buffer   = ReceiveBuffer(mtu=lambda: self.HW_MTU, min_frame_len=RNS.Reticulum.HEADER_MINSIZE,
+                                              max_frame_len=lambda: self.HW_MTU, on_frame=self.process_incoming)
 
         if RNS.vendor.platformutils.use_epoll(): self.epoll_backend = True
 
@@ -195,15 +187,15 @@ class LocalClientInterface(Interface):
 
     def send_keepalive(self):
         if self.online:
-            RNS.log(f"Sending keepalive on {self}", RNS.LOG_DEBUG) # TODO: Remove
+            RNS.log(f"Sending keepalive on {self}", RNS.LOG_EXTREME) if RNS.sl(RNS.LOG_EXTREME) else None
             try:
                 if self.epoll_backend:
-                    self.transmit_buffer += bytes([HDLC.FLAG])+bytes([HDLC.FLAG])
+                    self.transmit_buffer.append(bytes([HDLC.FLAG])+bytes([HDLC.FLAG]))
                     BackboneInterface.tx_ready(self)
 
                 else:
                     self.writing = True
-                    data = bytes([HDLC.FLAG])+HDLC.escape(data)+bytes([HDLC.FLAG])
+                    data = bytes([HDLC.FLAG])+bytes([HDLC.FLAG])
                     self.socket.sendall(data)
                     self.writing = False
 
@@ -220,22 +212,24 @@ class LocalClientInterface(Interface):
 
     def process_outgoing(self, data):
         if self.pause_on_client_sleep and time.time() > self.pause_timeout:
-            RNS.log(f"TX paused for LocalInterface client, dropping outbound packet", RNS.LOG_DEBUG) # TODO: Remove
+            RNS.log(f"TX paused for LocalInterface client, dropping outbound packet", RNS.LOG_DEBUG) if RNS.sl(RNS.LOG_DEBUG) else None # TODO: Remove
             return
 
         if self.online:
             try:
                 if self.epoll_backend:
-                    self.transmit_buffer += bytes([HDLC.FLAG])+HDLC.escape(data)+bytes([HDLC.FLAG])
-                    BackboneInterface.tx_ready(self)
+                    frame = bytes([HDLC.FLAG])+HDLC.escape(data)+bytes([HDLC.FLAG])
+                    if self.tx_stalled or not self.transmit_buffer.append(frame, self.tx_hwm):
+                        self.tx_drops += 1
+                        self.tx_dropped_bytes += len(frame)
+                        RNS.log(f"Egress control dropping outbound frame of {RNS.prettysize(len(frame))} on {self}", RNS.LOG_DEBUG) if RNS.sl(RNS.LOG_DEBUG) else None
+                    else: BackboneInterface.tx_ready(self)
 
                 else:
                     self.writing = True
 
                     if self._force_bitrate:
-                        if not hasattr(self, "send_lock"):
-                            self.send_lock = Lock()
-
+                        if not hasattr(self, "send_lock"): self.send_lock = Lock()
                         with self.send_lock:
                             # RNS.log(f"Simulating latency of {RNS.prettytime(s)} for {len(data)} bytes", RNS.LOG_EXTREME)
                             s = len(data) / self.bitrate * 8
@@ -255,22 +249,7 @@ class LocalClientInterface(Interface):
                 self.teardown()
 
     def handle_hdlc(self, data_in):
-        self.frame_buffer += data_in
-        flags_remaining = True
-        while flags_remaining:
-            frame_start = self.frame_buffer.find(HDLC.FLAG)
-            if frame_start != -1:
-                frame_end = self.frame_buffer.find(HDLC.FLAG, frame_start+1)
-                if frame_end != -1:
-                    frame = self.frame_buffer[frame_start+1:frame_end]
-                    frame = frame.replace(bytes([HDLC.ESC, HDLC.FLAG ^ HDLC.ESC_MASK]), bytes([HDLC.FLAG]))
-                    frame = frame.replace(bytes([HDLC.ESC, HDLC.ESC  ^ HDLC.ESC_MASK]), bytes([HDLC.ESC]))
-                    if len(frame) > RNS.Reticulum.HEADER_MINSIZE: self.process_incoming(frame)
-                    self.frame_buffer = self.frame_buffer[frame_end:]
-                
-                else: flags_remaining = False
-            
-            else: flags_remaining = False
+        self.receive_buffer.feed(data_in)
 
     def receive(self, data_in):
         try:
@@ -284,8 +263,7 @@ class LocalClientInterface(Interface):
                     # there's no other connectivity left to block anyway, it might be
                     # unnecessary.
                     self.reconnect()
-                else:
-                    self.teardown(nowarning=True)
+                else: self.teardown(nowarning=True)
                 
         except Exception as e:
             self.online = False
@@ -297,7 +275,7 @@ class LocalClientInterface(Interface):
 
     def read_loop(self):
         try:
-            self.frame_buffer = b""
+            self.receive_buffer.reset()
             data_in = b""
             while True:
                 data_in = self.socket.recv(4096)
@@ -431,6 +409,7 @@ class LocalServerInterface(Interface):
         self.announce_rate_grace   = None
         self.announce_rate_penalty = None
 
+        self.HW_MTU = 262144
         self.bitrate = 1000*1000*1000
         self.online = True
 
@@ -512,5 +491,4 @@ class LocalInterfaceHandler(socketserver.BaseRequestHandler):
         self.callback = callback
         socketserver.BaseRequestHandler.__init__(self, *args, **keys)
 
-    def handle(self):
-        self.callback(handler=self)
+    def handle(self): self.callback(handler=self)

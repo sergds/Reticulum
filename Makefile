@@ -21,6 +21,19 @@ clean:
 	@-rm -rf ./tests/__pycache__
 	@-rm -rf ./tests/rnsconfig/storage
 	@-rm -rf ./*.egg-info
+	@-rm -rf ./RNS/*.c
+	@-rm -rf ./RNS/Cryptography/*.c
+	@-rm -rf ./RNS/Cryptography/aes/*.c
+	@-rm -rf ./RNS/Cryptography/pure25519/*.c
+	@-rm -rf ./RNS/Interfaces/*.c
+	@-rm -rf ./RNS/Interfaces/util/*.c
+	@-rm -rf ./RNS/Interfaces/Android/*.c
+	@-rm -rf ./RNS/Utilities/*.c
+	@-rm -rf ./RNS/Utilities/rngit/*.c
+	@-rm -rf ./RNS/Utilities/rnsh/*.c
+	@-rm -rf ./RNS/vendor/*.c
+	@-rm -rf ./RNS/vendor/i2plib/*.c
+	@-rm -rf 
 	@make -C docs clean
 	@echo Done
 
@@ -50,6 +63,9 @@ build_wheel:
 build_pure_wheel:
 	python3 setup.py bdist_wheel --pure
 
+build_native:
+	python3 setup.py bdist_wheel --native
+
 documentation:
 	make -C docs html markdown
 
@@ -64,6 +80,8 @@ build_spkg: remove_symlinks build_sdist create_symlinks
 release: test remove_symlinks build_sdist build_wheel build_pure_wheel documentation manual distcollect create_symlinks
 
 debug: remove_symlinks build_wheel build_pure_wheel create_symlinks
+
+native: remove_symlinks build_native create_symlinks
 
 local: release sign
 

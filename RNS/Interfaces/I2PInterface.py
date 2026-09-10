@@ -537,6 +537,7 @@ class I2PInterfacePeer(Interface):
             raise IOError("Attempt to reconnect on a non-initiator I2P interface")
 
     def process_incoming(self, data):
+        if not data: return
         self.rxb += len(data)
         if hasattr(self, "parent_interface") and self.parent_interface != None and self.parent_count:
             self.parent_interface.rxb += len(data)

@@ -115,6 +115,7 @@ class UDPInterface(Interface):
 
 
     def process_incoming(self, data):
+        if not data: return
         self.rxb += len(data)
         self.owner.inbound(data, self)
 

@@ -201,7 +201,7 @@ class Identity:
             except Exception as e:
                 RNS.log(f"Error while serializing and writing known destinations: {e}", RNS.LOG_ERROR)
                 try: os.unlink(temp_file)
-                except Exception as e: RNS.log(f"Could not clean up temporary file {temp_file}: {e}", RNS.LOG_WARNING)
+                except Exception as exc: RNS.log(f"Could not clean up temporary file {temp_file}: {exc}", RNS.LOG_WARNING)
                 raise e
 
             RNS.log(f"Saved known destinations to storage in {RNS.prettyshorttime(time.time()-save_start)}", RNS.LOG_DEBUG) if RNS.sl(RNS.LOG_DEBUG) else None
@@ -556,7 +556,8 @@ class Identity:
                         if signal_blackholed: return "blackholed"
                         else:                 return False
 
-                if announced_identity.pub != None and announced_identity.validate(signature, signed_data):
+                if announced_identity.pub != None and (packet.announce_signature_validated or announced_identity.validate(signature, signed_data)):
+                    packet.announce_signature_validated = True
                     if only_validate_signature:
                         del announced_identity
                         return True
@@ -758,9 +759,7 @@ class Identity:
             return True
 
         except Exception as e:
-            raise e
-            RNS.log("Failed to load identity key", RNS.LOG_ERROR)
-            RNS.log("The contained exception was: "+str(e), RNS.LOG_ERROR)
+            RNS.log(f"Failed to load identity key, the contained exception was: {e}", RNS.LOG_ERROR)
             return False
 
     def load_public_key(self, pub_bytes):
@@ -778,8 +777,12 @@ class Identity:
             self.sig_pub       = Ed25519PublicKey.from_public_bytes(self.sig_pub_bytes)
 
             self.update_hashes()
+
+            return True
+
         except Exception as e:
-            RNS.log("Error while loading public key, the contained exception was: "+str(e), RNS.LOG_ERROR)
+            RNS.log(f"Error while loading public key, the contained exception was: {e}", RNS.LOG_ERROR)
+            return False
 
     def update_hashes(self):
         self.hash = Identity.truncated_hash(self.get_public_key())

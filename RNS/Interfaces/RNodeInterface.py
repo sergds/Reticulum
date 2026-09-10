@@ -258,6 +258,7 @@ class RNodeInterface(Interface):
         self.r_stat_tx   = None
         self.r_stat_rssi = None
         self.r_stat_snr  = None
+        self.r_stat_q    = None
         self.r_st_alock  = None
         self.r_lt_alock  = None
         self.r_random    = None
@@ -278,6 +279,7 @@ class RNodeInterface(Interface):
         self.r_noise_floor        = None
         self.r_interference       = None
         self.r_interference_l     = None
+        self.reports_phy_stats    = True
 
         self.r_battery_state = RNodeInterface.BATTERY_STATE_UNKNOWN
         self.r_battery_percent = 0
@@ -700,11 +702,9 @@ class RNodeInterface(Interface):
             self.bitrate = 0
 
     def process_incoming(self, data):
+        if not data: return
         self.rxb += len(data)
         self.owner.inbound(data, self)
-        self.r_stat_rssi = None
-        self.r_stat_snr = None
-
 
     def process_outgoing(self,data):
         datalen = len(data)
