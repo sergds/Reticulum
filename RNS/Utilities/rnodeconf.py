@@ -3522,7 +3522,7 @@ def main():
                 RNS.log("WARNING: EEPROM is being wiped! Power down device NOW if you do not want this!")
                 rnode.wipe_eeprom()
 
-                if rnode.platform != ROM.PLATFORM_NRF52:
+                if rnode.platform != ROM.PLATFORM_NRF52 and rnode.platform != ROM.PLATFORM_RP2XXX:
                     rnode.hard_reset()
 
                 graceful_exit()
@@ -4074,9 +4074,9 @@ def main():
                         if rnode.platform == ROM.PLATFORM_ESP32:
                             RNS.log("Waiting for ESP32 reset...")
                             time.sleep(6)
-                        elif rnode.platform == ROM.PLATFORM_NRF52:
+                        elif rnode.platform == ROM.PLATFORM_NRF52 or rnode.platform == ROM.PLATFORM_RP2XXX:
                             rnode_serial.close()
-                            RNS.log("Waiting for NRF52 reset...")
+                            RNS.log("Waiting for reset...")
                             time.sleep(18)
                             selected_port = None
                             ports = list_ports.comports()
@@ -4085,7 +4085,7 @@ def main():
                                     selected_port = port
                                     break
                             if selected_port is None:
-                                RNS.log("Could not detect new port for NRF52...")
+                                RNS.log("Could not detect new serial port...")
                             else:
                                 try:
                                     rnode_serial = rnode_open_serial(selected_port.device)
@@ -4292,7 +4292,7 @@ def main():
                                 if selected_model in [ROM.MODEL_AC, ROM.MODEL_A6, ROM.MODEL_A1, ROM.MODEL_AA, ROM.MODEL_A5]:
                                     time.sleep(5)
 
-                            elif rnode.platform == ROM.PLATFORM_NRF52:
+                            elif rnode.platform == ROM.PLATFORM_NRF52 or rnode.platform == ROM.PLATFORM_RP2XXX:
                                 # Wait a few seconds before hard resetting.
                                 # Otherwise, macOS fails to set firmware hash on NRF52
                                 if RNS.vendor.platformutils.is_darwin():
@@ -4305,7 +4305,7 @@ def main():
                                 # Therefore, we have to reestablish the serial
                                 # connection after the reset.
                                 rnode_serial.close()
-                                RNS.log("Waiting for NRF52 reset...")
+                                RNS.log("Waiting for reset...")
 
                                 # Give plenty of time for to allow for
                                 # potential e-ink display refresh too.
