@@ -8,6 +8,16 @@ This chapter of the manual serves as the technical reference for the distributed
 
 A set of utilities for distributed collaborative software development and publishing are included in RNS.
 
+.. only:: html
+
+  .. image:: screenshots/rngit.webp
+      :align: center
+
+.. only:: latex
+
+  .. image:: screenshots/rngit.png
+      :align: center
+
 The system consists of two parts: The ``rngit`` node that hosts repositories, and the ``git-remote-rns`` helper that enables Git to communicate with rngit nodes. As soon as you have RNS installed on your system, you can transparently use Git with Reticulum-hosted repositories just like any other type of remote. Git over Reticulum uses URLs in the following format: ``rns://DESTINATION_HASH/group/repo``.
 
 If you set a branch to track a Reticulum remote as the default upstream, you can simply use ``git`` as you normally would; all commands work transparently and as expected.
@@ -132,6 +142,9 @@ To create a new empty repository on a remote node:
   Repository public/myrepo created
 
 This creates a bare Git repository at the specified path. You must have ``create`` permission for the target group. When a repository is created, the creator automatically receives ``adm`` (admin) permissions on the repository through an auto-generated ``.allowed`` file.
+
+.. tip::
+  If you want to use a different primary branch name than ``master``, you can change it inside the bare git repository directory with ``git symbolic-ref HEAD refs/heads/name_of_other_branch``.
 
 **All Command-Line Options (rngit create)**
 
