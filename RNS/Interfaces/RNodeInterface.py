@@ -1,6 +1,6 @@
 # Reticulum License
 #
-# Copyright (c) 2016-2025 Mark Qvist
+# Copyright (c) 2016-2026 Mark Qvist
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -688,7 +688,7 @@ class RNodeInterface(Interface):
             RNS.log("Spreading factor mismatch", RNS.LOG_ERROR)
             self.validcfg = False
         if (self.state != self.r_state):
-            RNS.log(f"Radio state mismatch {self.r_state}", RNS.LOG_ERROR)
+            RNS.log("Radio state mismatch", RNS.LOG_ERROR)
             self.validcfg = False
 
         if (self.validcfg): return True
@@ -1157,19 +1157,17 @@ class RNodeInterface(Interface):
 
         except Exception as e:
             self.online = False
-            RNS.log("A serial port error occurred, the contained exception was: "+str(e), RNS.LOG_ERROR)
-            RNS.log("The interface "+str(self)+" experienced an unrecoverable error and is now offline.", RNS.LOG_ERROR)
+            if not self.detached:
+                RNS.log("A serial port error occurred, the contained exception was: "+str(e), RNS.LOG_ERROR)
+                RNS.log("The interface "+str(self)+" experienced an unrecoverable error and is now offline.", RNS.LOG_ERROR)
 
-            if RNS.Reticulum.panic_on_interface_error:
-                RNS.panic()
+                if RNS.Reticulum.panic_on_interface_error: RNS.panic()
 
-            RNS.log("Reticulum will attempt to reconnect the interface periodically.", RNS.LOG_ERROR)
+                RNS.log("Reticulum will attempt to reconnect the interface periodically.", RNS.LOG_ERROR)
 
         self.online = False
-        try:
-            self.serial.close()
-        except Exception as e:
-            pass
+        try: self.serial.close()
+        except Exception as e: pass
 
         if not self.detached and not self.reconnecting:
             self.reconnect_port()
@@ -1195,14 +1193,20 @@ class RNodeInterface(Interface):
             self.disable_external_framebuffer()
             self.setRadioState(KISS.RADIO_STATE_OFF)
             self.leave()
+            self.serial.close()
 
         except Exception as e:
             RNS.log(f"An error occurred while detaching {self}: {e}", RNS.LOG_ERROR)
         
-        if self.use_ble: self.ble.close()
-        if self.use_tcp:
+        if self.use_ble:
+            self.ble.close()
+            self.ble.cleanup()
+            self.ble = None
+        elif self.use_tcp:
             time.sleep(0.5)
             self.tcp.close()
+        else:
+            self.serial.close()
 
     def should_ingress_limit(self):
         return False
@@ -1390,7 +1394,6 @@ class BLEConnection():
 
     def find_target_device(self):
         RNS.log(f"Searching for attachable BLE device for {self.owner}...", RNS.LOG_EXTREME)
-        import platform
         if RNS.vendor.platformutils.is_windows():
             self._windows_paired_addrs = self._get_windows_paired_ble_addresses()
         def device_filter(device: self.bleak.backends.device.BLEDevice, adv: self.bleak.backends.scanner.AdvertisementData):

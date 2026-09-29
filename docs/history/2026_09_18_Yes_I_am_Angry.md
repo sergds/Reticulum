@@ -12,7 +12,7 @@ If any rational explanation can produce an alternative, I am all ears.
 
 **To the footsoldiers of the "cause" the article represents**
 
-Let's get this show on. Let's see the barrage of new smear pieces you can prompt forth from the fuel I provide you here. It'll fit straight into your theater production, so: Be my fucking guest, and dig your own hole of delusion, mistrust and ridicule even deeper than it alraedy is.
+Let's get this show on. Let's see the barrage of new smear pieces you can prompt forth from the fuel I provide you here. It'll fit straight into your theater production, so: Be my fucking guest, and dig your own hole of delusion, mistrust and ridicule even deeper than it already is. I can then hurl it right back at you, and we can all have a crap-fight till the end of days. *Or* we could take responsibility and ownership for our words and actions, and actually build something together. Ball's in your court.
 
 **To anyone else**
 
@@ -23,6 +23,20 @@ I am no angel, not perfect, flawed in many ways, but I certainly ain't afraid to
 [This is the article in question](https://gaggl.com/blogs/2026-09-05-enclosure-by-good-intentions/)
 
 [This is the polite, measured analysis of the *generalized* phenomenon, all 18,000 words of it](https://reticulum.network/manual/brandolinis.html)
+
+And here is a very short, but central point from that analysis:
+
+> In whole, this is the description of three fronts of the same operation:
+>
+> * The license attack and other urgency-engineered narratives are the *cover*: They supply
+>   the ideological justification and battering ram for treating the reference as illegitimate,
+>   and needing replacement.
+> * The ports are the *inventory*: they supply the “replacement” material that the narrative
+>   claims the ecosystem needs.
+> * The takeover narrative is the *objective function*: the repeated, persistent, escalating claim that
+>   the reference should be replaced, and that the speakers themself are the natural heirs.
+
+---
 
 *This*, right here, is the real, human and honest response. And the only sane one there could ever be, lest madness be allowed to descend wholly.
 
@@ -100,7 +114,7 @@ Oh for Christ's sake, this one [again](https://reticulum.network/manual/brandoli
 
 > Kaonic tactical mesh radios are sold for military command and control, drone and autonomous-systems networking, and operation in “austere, contested environments”, and which has since been selected for NATO’s DIANA defence-innovation accelerator. It is MIT-licensed, it is an independent implementation of a protocol that is itself public domain, and its repository predates Qvist’s harm clause by nine months.
 
-Those fuckers came to me and presented themselves as wanting to create a rust port for the good of the ecosystem, the world and the community. That was a blatant lie and front for their actual goal of acquiring my goodwill and expertise so they could quickly create a shallow clone, hardfork it with their own sloppy "Post-Quantum" crypto, and get big money from the military. They deliberately lied and manipulated to extract from a whole community and someone they believed to be a naive, vulnerable autistic developer.
+Those fuckers came to me and presented themselves as wanting to create a rust port for the good of the ecosystem, the world and the community. That was a blatant lie and front for their actual goal of acquiring my goodwill and expertise so they could quickly create a shallow clone, hardfork it with their own sloppy "Post-Quantum" crypto, and get big money from the military. They deliberately lied and manipulated to extract from a whole community and someone they believed to be a naive, vulnerable developer.
 
 Why do you think a non-harm clause is needed? Their implementation is still not *working*, by the way, and has provided **nothing** to the community or world at large.
 
@@ -188,7 +202,7 @@ Those people, are in their own words, "Killing Reticulum" (quote, Lew Palm, "aut
 
 > The two that put enclosure resistance first, Leviculum and the rsReticulum stack behind Ratspeak, both chose AGPLv3.
 
-And all of those are void and null, because what they *really* chose is **copyright violation**, and complete disrespect ([as is now becoming tradition](https://reticulum.network/manual/brandolinis.html#licensing-analysis)) for open source development practices, attribution and basic decency.
+And all of those are [void and null](https://reticulum.network/manual/brandolinis.html#void-grants-legal-foundations-of-machine-generated-code), because what they *really* chose is **copyright violation**, and complete disrespect ([as is now becoming tradition](https://reticulum.network/manual/brandolinis.html#licensing-analysis)) for open source development practices, attribution and basic decency.
 
 > Underneath the licence choice sits a harder problem, and it is the one this site keeps coming back to: a system can be decentralised in its architecture and completely centralised in who decides things.
 
@@ -196,7 +210,7 @@ Oooooh... Tension. Drama. Tell me more, let's have the juicy details, huh? Outra
 
 The only thing that keeps coming back here is nonsense.
 
-The decisions follow those responsible, over years, and actual the work. Not cry-babies like you. Get used to it.
+The decisions follow those responsible, over years, and the actual work. Not cry-babies like you. Get used to it.
 
 > Relicensing a codebase other people contributed to, under MIT terms, with a single unilateral commit, is itself a small act of enclosure.
 
@@ -206,13 +220,13 @@ But your ideology runs so deep now, *that we cannot ourselves decide how we lice
 
 It's *almost* like you've decided you already personally own Reticulum.
 
-> The pattern shows up off the codebase too. In late August 2026, after a badly-behaved crawler hammered **his** NomadNet git node with tens of thousands of requests
+> The pattern shows up off the codebase too. In late August 2026, after a badly-behaved crawler hammered his NomadNet git node with tens of thousands of requests
 
 Ah yes, so I got personally mad because it hit *my* node, and had a tantrum?
 
 The scraper was hitting *every node across the entire fucking intermesh*, from a high-bandwidth VPS, with no throttling, no regards for people's radio links, airtime concerns, metered connections or limited compute resources.
 
-For what reason? To gouge **millions** of requests to a broken piece of shit software that an idiot deployed and left running without oversight, trying to infintely download **everything that everyone had ever put on their nodes several times over** on a recursive loop.
+For what reason? To gouge tens of **millions** of requests to a broken piece of shit software that an idiot deployed and left running without oversight, trying to infintely download **everything that everyone had ever put on their nodes several times over** on a recursive loop.
 
 Who made that stop? I did, because I contacted the idiot and talked him out of it.
 
