@@ -234,8 +234,8 @@ class InterfaceAnnouncer():
                 info[MODULATION]      = self.sanitize(interface.discovery_modulation)
 
             if interface.discovery_publish_ifac == True:
-                info[IFAC_NETNAME]    = self.sanitize(interface.ifac_netname)
-                info[IFAC_NETKEY]     = self.sanitize(interface.ifac_netkey)
+                if interface.ifac_netname: info[IFAC_NETNAME] = self.sanitize(interface.ifac_netname)
+                if interface.ifac_netkey:  info[IFAC_NETKEY]  = self.sanitize(interface.ifac_netkey)
 
             packed    = msgpack.packb(info)
             infohash  = RNS.Identity.full_hash(packed)
@@ -375,8 +375,8 @@ class InterfaceAnnounceHandler:
                                 "longitude":    unpacked[LONGITUDE],
                                 "height":       unpacked[HEIGHT]}
 
-                        if IFAC_NETNAME in unpacked: info["ifac_netname"] = str(unpacked[IFAC_NETNAME])
-                        if IFAC_NETKEY  in unpacked: info["ifac_netkey"]  = str(unpacked[IFAC_NETKEY])
+                        if IFAC_NETNAME in unpacked and unpacked[IFAC_NETNAME] and type(unpacked[IFAC_NETNAME]) == str: info["ifac_netname"] = str(unpacked[IFAC_NETNAME])
+                        if IFAC_NETKEY  in unpacked and unpacked[IFAC_NETKEY]  and type(unpacked[IFAC_NETKEY])  == str: info["ifac_netkey"]  = str(unpacked[IFAC_NETKEY])
 
                         if interface_type in ["BackboneInterface", "TCPServerInterface"]:
                             backbone_support     = not RNS.vendor.platformutils.is_windows() and not RNS.vendor.platformutils.is_darwin()
@@ -480,13 +480,17 @@ class InterfaceDiscovery():
     STATUS_UNKNOWN     = 100
     STATUS_AVAILABLE   = 1000
     STATUS_CODE_MAP    = {"available": STATUS_AVAILABLE, "unknown": STATUS_UNKNOWN, "stale": STATUS_STALE}
-    AUTOCONNECT_TYPES  = ["BackboneInterface", "TCPServerInterface"]
+    AUTOCONNECT_TYPES  = ["BackboneInterface"]
     DISCOVERABLE_TYPES = ["BackboneInterface", "TCPServerInterface", "I2PInterface", "RNodeInterface", "WeaveInterface", "KISSInterface"]
+
+    AUTOCONNECT_IMPLS  = ["RNS"]
+    AUTOCONNECT_MIN_V  = "1.5.2"
 
     AC_TRANSPORT_MODE  = RNS.Interfaces.Interface.Interface.MODE_GATEWAY
     AC_GRAVITY         = 0
 
     discovery_lock     = Lock()
+    autoconnect_lock   = Lock()
 
     def __init__(self, required_value=InterfaceAnnouncer.DEFAULT_STAMP_VALUE, callback=None, discover_interfaces=True):
         if not required_value: required_value = InterfaceAnnouncer.DEFAULT_STAMP_VALUE
@@ -532,7 +536,16 @@ class InterfaceDiscovery():
                 should_remove = False
                 heard_delta   = now-info["last_heard"]
                 info["name"]  = InterfaceAnnounceHandler.sanitize_name(info["name"])
-                
+
+                # TODO: Temporary measure to sanitize invalidly persisted "None" values
+                # for incorrect IFAC parameters published due to unguarded nonsensical
+                # node-side configuration. Potentially remove once nodes upgrade to RNS
+                # versions that guard against the configuration mismatch.
+                try:
+                    if "ifac_netname" in info and info["ifac_netname"] == "None": info.pop("ifac_netname")
+                    if "ifac_netkey"  in info and info["ifac_netkey"]  == "None": info.pop("ifac_netkey")
+                except Exception as e: RNS.log(f"Error while sanitizing discovery info: {e}", RNS.LOG_ERROR)
+
                 if   heard_delta > self.THRESHOLD_REMOVE: should_remove = True
                 elif not "transport_id" in info or not info["transport_id"]: should_remove = True
                 elif not "network_id" in info or not info["network_id"]: should_remove = True
@@ -652,22 +665,27 @@ class InterfaceDiscovery():
             autoconnected_interfaces = self.autoconnect_count()
             for interface in self.monitored_interfaces:
                 try:
-                    if interface.online:
-                        online_interfaces += 1
-                        if hasattr(interface, "autoconnect_down") and interface.autoconnect_down != None:
-                            RNS.log(f"Auto-discovered interface {interface} reconnected")
-                            interface.autoconnect_down = None
+                    if not interface in RNS.Transport.interfaces:
+                        RNS.log(f"A monitored auto-connected interface was manually detached, removing from monitoring", RNS.LOG_DEBUG)
+                        detached_interfaces.append(interface)
 
                     else:
-                        if not hasattr(interface, "autoconnect_down") or interface.autoconnect_down == None:
-                            RNS.log(f"Auto-discovered interface {interface} disconnected", RNS.LOG_DEBUG)
-                            interface.autoconnect_down = time.time()
+                        if interface.online:
+                            online_interfaces += 1
+                            if hasattr(interface, "autoconnect_down") and interface.autoconnect_down != None:
+                                RNS.log(f"Auto-discovered interface {interface} reconnected")
+                                interface.autoconnect_down = None
 
                         else:
-                            down_for = time.time()-interface.autoconnect_down
-                            if down_for >= self.detach_threshold:
-                                RNS.log(f"Auto-discovered interface {interface} has been down for {RNS.prettytime(down_for)}, detaching", RNS.LOG_DEBUG)
-                                detached_interfaces.append(interface)
+                            if not hasattr(interface, "autoconnect_down") or interface.autoconnect_down == None:
+                                RNS.log(f"Auto-discovered interface {interface} disconnected", RNS.LOG_DEBUG)
+                                interface.autoconnect_down = time.time()
+
+                            else:
+                                down_for = time.time()-interface.autoconnect_down
+                                if down_for >= self.detach_threshold:
+                                    RNS.log(f"Auto-discovered interface {interface} has been down for {RNS.prettytime(down_for)}, detaching", RNS.LOG_DEBUG)
+                                    detached_interfaces.append(interface)
 
                 except Exception as e:
                     RNS.log(f"Error while checking auto-connected interface state for {interface}: {e}", RNS.LOG_ERROR)
@@ -701,8 +719,10 @@ class InterfaceDiscovery():
                     RNS.log(f"Error while de-registering auto-connected interface from transport: {e}", RNS.LOG_ERROR)
 
     def teardown_interface(self, interface):
-        interface.detach()
-        RNS.Transport.remove_interface(interface)
+        if interface in RNS.Transport.interfaces:
+            was_detached = RNS.Reticulum.get_instance()._detach_interface(interface.name, internal_forced=True)
+            if not was_detached: RNS.log(f"Detach of auto-connected interface {interface} did not succeed", RNS.LOG_ERROR)
+
         if interface in self.monitored_interfaces: self.monitored_interfaces.remove(interface)
 
     def autoconnect_count(self):
@@ -749,6 +769,26 @@ class InterfaceDiscovery():
 
         return exists
 
+    def autoconnect_interface_name(self, name):
+        names = {interface.name for interface in RNS.Transport.interfaces}
+        if not name in names: return name
+        else:
+            n = 2; seq_name = f"{name} ({n})"
+            while seq_name in names:
+                n += 1; seq_name = f"{name} ({n})"
+
+            return seq_name
+
+    def autoconnect_qualified(self, info):
+        if RNS.Reticulum.should_autoconnect_unverified_implementations(): return True
+        if not "impl_name" in info:                                       return False
+        if not info["impl_name"] in self.AUTOCONNECT_IMPLS:               return False
+        if not "version" in info or not info["version"]:                  return False
+
+        version = version_tuple(info["version"])
+        if version == None: return False
+        return version >= version_tuple(self.AUTOCONNECT_MIN_V)
+
     def autoconnect(self, info):
         try:
             if RNS.Reticulum.should_autoconnect_discovered_interfaces():
@@ -756,17 +796,16 @@ class InterfaceDiscovery():
                 if autoconnected_count < RNS.Reticulum.max_autoconnected_interfaces():
                     interface_type = info["type"]
                     if interface_type in self.AUTOCONNECT_TYPES:
+                        if not self.autoconnect_qualified(info):
+                            impl = f"{info['impl_name']} {info['version']}" if ("impl_name" in info and "version" in info and info["impl_name"] and info["version"]) else "unknown implementation"
+                            RNS.log(f"Not auto-connecting discovered {interface_type} {info['name']} ({impl}), auto-connect criteria not satisfied", RNS.LOG_DEBUG)
+                            return
+
                         endpoint_hash = self.endpoint_hash(info)
                         exists = self.interface_exists(info)
 
                         if exists: RNS.log(f"Discovered {interface_type} already exists, not auto-connecting", RNS.LOG_DEBUG)
                         else:
-                            if interface_type == "TCPClientInterface":
-                                RNS.log(f"Your operating system does not support the Backbone interface type, and must degrade to using TCPClientInterface instead", RNS.LOG_WARNING)
-                                RNS.log(f"Auto-connecting discovered TCPClient interfaces is not yet implemented, aborting auto-connect", RNS.LOG_WARNING)
-                                RNS.log(f"You can obtain the configuration entry and add this interface manually instead using rnstatus -D", RNS.LOG_WARNING)
-                                return
-
                             if interface_type == "I2PInterface":
                                 RNS.log(f"Auto-connecting discovered I2P interfaces is not yet implemented, aborting auto-connect", RNS.LOG_DEBUG)
                                 RNS.log(f"You can obtain the configuration entry and add this interface manually instead using rnstatus -D", RNS.LOG_DEBUG)
@@ -784,35 +823,57 @@ class InterfaceDiscovery():
                                 RNS.log(f"Not auto-connecting discovered interface with invalid IP address: {info['reachable_on']}", RNS.LOG_DEBUG)
                                 return
 
-                            interface_name = info["name"]
-                            config_entry = info["config_entry"]
-                            interface_config = {}
-                            interface_config["name"] = f"{interface_name}"
-                            ifac_netname = info["ifac_netname"] if "ifac_netname" in info else None
-                            ifac_netkey  = info["ifac_netkey"]  if "ifac_netkey"  in info else None
-                            interface    = None
+                            with self.autoconnect_lock:
+                                if self.interface_exists(info): return
+                                backbone_support = (not RNS.vendor.platformutils.is_windows() and not RNS.vendor.platformutils.is_darwin())
 
-                            if interface_type == "BackboneInterface":
-                                from RNS.Interfaces import BackboneInterface
-                                interface_config["target_host"] = info["reachable_on"]
-                                interface_config["target_port"] = info["port"]
-                                interface = BackboneInterface.BackboneClientInterface(RNS.Transport, interface_config)
+                                interface_name = self.autoconnect_interface_name(info["name"])
+                                if interface_name != info["name"]:
+                                    RNS.log(f"Auto-connect name collision for \"{info['name']}\", connecting as \"{interface_name}\"", RNS.LOG_NOTICE)
 
-                            if interface:
-                                RNS.log(f"Auto-connecting discovered {interface_type} {interface_name}")
-                                interface.autoconnect_hash = endpoint_hash
-                                interface.autoconnect_source = info["network_id"]
-                                if RNS.Reticulum.autoconnect_interface_mode(): mode = RNS.Reticulum.autoconnect_interface_mode()
-                                else: mode = self.AC_TRANSPORT_MODE if RNS.Reticulum.transport_enabled() else None
-                                internal_a = True if RNS.Reticulum.autoconnect_announces_to_internal() else None
-                                gravity    = RNS.Reticulum.autoconnect_interface_gravity() or self.AC_GRAVITY
-                                ar_target  = RNS.Reticulum.get_instance()._default_ar_target() if RNS.Reticulum.transport_enabled() else None
-                                ar_penalty = RNS.Reticulum.get_instance()._default_ar_penalty() if RNS.Reticulum.transport_enabled() else None
-                                ar_grace   = RNS.Reticulum.get_instance()._default_ar_grace() if RNS.Reticulum.transport_enabled() else None
-                                RNS.Reticulum.get_instance()._add_interface(interface, mode=mode, ifac_netname=ifac_netname, ifac_netkey=ifac_netkey, configured_bitrate=5E6,
-                                                                            announce_rate_target=ar_target, announce_rate_grace=ar_grace, announce_rate_penalty=ar_penalty,
-                                                                            announces_to_internal=internal_a, gravity=gravity)
-                                self.monitor_interface(interface)
+                                config_entry = info["config_entry"]
+                                interface_config = {}
+                                interface_config["name"] = f"{interface_name}"
+
+                                # TODO: Temporary measure to sanitize invalidly persisted "None" values
+                                # for incorrect IFAC parameters published due to unguarded nonsensical
+                                # node-side configuration. Potentially remove once nodes upgrade to RNS
+                                # versions that guard against the configuration mismatch.
+                                if "ifac_netname" in info and info["ifac_netname"] == "None": info["ifac_netname"] = None
+                                if "ifac_netkey"  in info and info["ifac_netkey"]  == "None": info["ifac_netkey"]  = None
+
+                                ifac_netname = info["ifac_netname"] if "ifac_netname" in info and info["ifac_netname"] else None
+                                ifac_netkey  = info["ifac_netkey"]  if "ifac_netkey"  in info and info["ifac_netkey"]  else None
+                                interface    = None
+
+                                if interface_type == "BackboneInterface":
+                                    if backbone_support:
+                                        from RNS.Interfaces import BackboneInterface
+                                        interface_class = BackboneInterface.BackboneClientInterface
+                                    else:
+                                        from RNS.Interfaces import TCPInterface
+                                        interface_class = TCPInterface.TCPClientInterface
+                                        RNS.log(f"BackboneInterface is not yet supported on this operating system, auto-connecting discovered {interface_type} {interface_name} using TCPClientInterface", RNS.LOG_NOTICE)
+
+                                    interface_config["target_host"] = info["reachable_on"]
+                                    interface_config["target_port"] = info["port"]
+                                    interface = interface_class(RNS.Transport, interface_config)
+
+                                if interface:
+                                    RNS.log(f"Auto-connecting discovered {interface_type} {interface_name}")
+                                    interface.autoconnect_hash = endpoint_hash
+                                    interface.autoconnect_source = info["network_id"]
+                                    if RNS.Reticulum.autoconnect_interface_mode(): mode = RNS.Reticulum.autoconnect_interface_mode()
+                                    else: mode = self.AC_TRANSPORT_MODE if RNS.Reticulum.transport_enabled() else None
+                                    internal_a = True if RNS.Reticulum.autoconnect_announces_to_internal() else None
+                                    gravity    = RNS.Reticulum.autoconnect_interface_gravity() or self.AC_GRAVITY
+                                    ar_target  = RNS.Reticulum.get_instance()._default_ar_target() if RNS.Reticulum.transport_enabled() else None
+                                    ar_penalty = RNS.Reticulum.get_instance()._default_ar_penalty() if RNS.Reticulum.transport_enabled() else None
+                                    ar_grace   = RNS.Reticulum.get_instance()._default_ar_grace() if RNS.Reticulum.transport_enabled() else None
+                                    RNS.Reticulum.get_instance()._add_interface(interface, mode=mode, ifac_netname=ifac_netname, ifac_netkey=ifac_netkey, configured_bitrate=5E6,
+                                                                                announce_rate_target=ar_target, announce_rate_grace=ar_grace, announce_rate_penalty=ar_penalty,
+                                                                                announces_to_internal=internal_a, gravity=gravity)
+                                    self.monitor_interface(interface)
 
         except Exception as e:
             RNS.log(f"Error while auto-connecting discovered interface: {e}", RNS.LOG_ERROR)
@@ -930,6 +991,18 @@ def is_hostname(hostname):
     if re.match(r"[0-9]+$", components[-1]): return False
     allowed = re.compile(r"(?!-)[a-z0-9-]{1,63}(?<!-)$", re.IGNORECASE)
     return all(allowed.match(label) for label in components)
+
+def version_tuple(version_string):
+    if type(version_string) != str: return None
+    try:
+        components = []
+        for component in version_string.strip().split("."):
+            match = re.match(r"[0-9]+", component)
+            if match == None: break
+            components.append(int(match.group(0)))
+        if len(components) == 0: return None
+        return tuple(components)
+    except Exception as e: return None
 
 san_map = ""
 for i in range(48, 58):  san_map += bytes([i]).decode("ascii")

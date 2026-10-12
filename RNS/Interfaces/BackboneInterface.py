@@ -509,7 +509,7 @@ class BackboneInterface(Interface):
                             interfaces = list(BackboneInterface.spawned_interface_filenos.values())
 
                             if q_depth > BackboneInterface.DP_IC_MID_WM:
-                                producers = [iface for iface in interfaces if iface.dp_ingress_packets > 0 and not isinstance(interface, RNS.Interfaces.LocalInterface.LocalClientInterface)]
+                                producers = [iface for iface in interfaces if iface.dp_ingress_packets > 0 and not isinstance(iface, RNS.Interfaces.LocalInterface.LocalClientInterface)]
                                 if producers:
                                     producers.sort(key=lambda p: p.dp_ingress_packets, reverse=True)
                                     selected = producers[0]
@@ -738,6 +738,10 @@ class BackboneInterface(Interface):
             spawned_interface.announce_rate_penalty = self.announce_rate_penalty
             spawned_interface.mode = self.mode
             spawned_interface.gravity = self.gravity
+            spawned_interface.recursive_prs = self.recursive_prs
+            spawned_interface.announces_from_internal = self.announces_from_internal
+            spawned_interface.announces_to_internal = self.announces_to_internal
+            spawned_interface.announce_cap = self.announce_cap
             spawned_interface.HW_MTU = self.HW_MTU
             RNS.log("Spawned new BackboneClient Interface: "+str(spawned_interface), RNS.LOG_PATHING) if RNS.sl(RNS.LOG_PATHING) else None
             RNS.Transport.add_interface(spawned_interface)
@@ -926,11 +930,10 @@ class BackboneClientInterface(Interface):
 
     def detach(self):
         self.online = False
+        self.detached = True
         if self.socket != None:
             if hasattr(self.socket, "close"):
                 if callable(self.socket.close):
-                    self.detached = True
-                    
                     try:
                         if self.socket != None: self.socket.shutdown(socket.SHUT_RDWR)
                     except Exception as e:
