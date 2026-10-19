@@ -193,14 +193,15 @@ class DebugLevel(Enum):
     INFO = 1
     TRACE = 2
 
+
 class PBDevice():
-    """PICOBOOT USB Device, found and opened by a usb serial number. This is the main class for communicating with bootrom, has it's own micro logging system for some reason"""
-    def __init__(self, pserial_number: str, debug_print: Callable[...] = dprint_dummy, debug_level: DebugLevel = DebugLevel.TRACE):
+    """PICOBOOT USB Device, found and opened by a usb bus-address. This is the main class for communicating with bootrom, has it's own micro logging system for some reason"""
+    def __init__(self, bus: int, address: int, debug_print: Callable[...] = dprint_dummy, debug_level: DebugLevel = DebugLevel.TRACE):
         self.dprint = debug_print
         self.debug_level = debug_level.value
         self.active = True
         self._devtype = DeviceType.RP2040
-        self._dev = usb.core.find(serial_number=pserial_number)
+        self._dev = usb.core.find(bus=bus, address=address)
         if self._dev is None:
             raise RuntimeError(f"failed to get device with serial \"{pserial_number}\"")
         self.picoboot_interface = None
@@ -346,7 +347,7 @@ class PBDevice():
     @staticmethod
     def enumerate_devices() -> list[usb.core.Device]:
         """Quick helper to list PICOBOOT devices"""
-        return list(usb.core.find(find_all=True, custom_match = lambda d: d.idVendor==0x2e8a and d.idProduct==0x000f or d.idVendor==0x0003))
+        return list(usb.core.find(find_all=True, custom_match = lambda d: d.idVendor==0x2e8a and (d.idProduct==0x000f or d.idProduct==0x0003)))
 
 # test crap, if it doesn't error out, then it means you can probably flash with this module
 if __name__ == "__main__":
@@ -367,7 +368,7 @@ if __name__ == "__main__":
         chosen_n = 0
 
     chosen_dev = devs[chosen_n]
-    pbdev = PBDevice(chosen_dev.serial_number)
+    pbdev = PBDevice(dev.bus, dev.address)
     atexit.register(pbdev.close)
     pbdev.write(0x20000000, [0] * 128)
     mem = pbdev.read(0x20000000, 128)
@@ -378,5 +379,9 @@ if __name__ == "__main__":
     flash = pbdev.read(0x10000000, 128)
     print(bytes(flash).hex(' '))
     assert list(mem) == [0xFF, 0xFA, 0xFE, 0xFF] * 32
-    pbdev.get_info(InfoType.INFO_SYS.value, [SysInfoFlag.CHIP_INFO.value])
+    try:
+        pbdev.get_info(InfoType.INFO_SYS.value, [SysInfoFlag.CHIP_INFO.value])
+    except CommandError as e:
+        if pbdev._devtype != DeviceType.RP2040:
+            raise e
     # pbdev.reboot2(0x0002, 800, 0, 0)
