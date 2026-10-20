@@ -218,6 +218,8 @@ class PBDevice():
         usb.util.claim_interface(self._dev, self.picoboot_interface)
         self.ep_out = usb.util.find_descriptor(self.picoboot_interface, custom_match = lambda e: usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_OUT)
         self.ep_in  = usb.util.find_descriptor(self.picoboot_interface, custom_match = lambda e: usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_IN)
+        if self.ep_in is None or self.ep_out is None:
+            raise RuntimeError("failed to find PICOBOOT endpoints, is device actually in bootrom?")
         self.fin = weakref.finalize(self, self.close)
         self._devtype =  self._deduce_device_type()
 
