@@ -223,6 +223,9 @@ class PBDevice():
         self.fin = weakref.finalize(self, self.close)
         self._devtype =  self._deduce_device_type()
 
+    def get_device_type(self) -> DeviceType:
+        return self._devtype
+
     def dprint_gated(self, level: DebugLevel, *args):
         if level.value <= self.debug_level:
             self.dprint(*args)
@@ -315,8 +318,8 @@ class PBDevice():
         Bresp = self._do_command(PBCommand.read(addr, size))
         return Bresp
 
-    def write(self, addr: int, data: list[int]):
-        self._do_command(PBCommand.write(addr, len(data)), bytes(data))
+    def write(self, addr: int, data: bytes):
+        self._do_command(PBCommand.write(addr, len(data)), data)
 
     def exit_xip(self):
         self._do_command(PBCommand.exit_xip())
@@ -372,10 +375,10 @@ if __name__ == "__main__":
     chosen_dev = devs[chosen_n]
     pbdev = PBDevice(dev.bus, dev.address)
     atexit.register(pbdev.close)
-    pbdev.write(0x20000000, [0] * 128)
+    pbdev.write(0x20000000, bytes([0] * 128))
     mem = pbdev.read(0x20000000, 128)
     assert list(mem) == [0] * 128
-    pbdev.write(0x20000000, [0xFF, 0xFA, 0xFE, 0xFF] * 32)
+    pbdev.write(0x20000000, bytes([0xFF, 0xFA, 0xFE, 0xFF] * 32))
     mem = pbdev.read(0x20000000, 128)
     pbdev.exit_xip()
     flash = pbdev.read(0x10000000, 128)
