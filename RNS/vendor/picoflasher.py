@@ -1,4 +1,5 @@
 import picoboot
+import struct
 
 FLASH_BASE = 0x10000000
 
@@ -63,28 +64,66 @@ class PicoFlasher():
                 ctx.erased_sectors.add(sector)
             # self.pbdev.dprint_gated(picoboot.DebugLevel.TRACE, f"[FLASHER] writing {page.addr:#04x}")
             self.pbdev.write(page.addr, page.data)
+            yield page
 
     @staticmethod
     def context_from_file(path: str):
         with open(path, "rb") as f:
             fb = f.read()
             # TODO: support UF2 and sense it here and branch automatically
-            total_pages = len(fb) // 256 + (1 if len(fb) % 256 != 0 else 0)
-            ctx = FlashContext()
-            for p in range(total_pages):
-                offs = 256 * p
-                writing_address = FLASH_BASE + offs
-                ctx.pages.append(FlashPage(writing_address, fb[offs:offs+256]))
-            ctx.pages.sort()
-            return ctx
+            if (fb[0:4].decode('utf-8') == "UF2\n"):
+                ctx = FlashContext()
+                # uniq_familyids = {}
+                for blockN in range(0, len(fb) // 512):
+                    block_offs = blockN * 512
+                    b_magic1, b_magic2, b_flags, b_addr, b_payload_size, b_num, b_numtotal, b_filesize_familyid, b_data, b_magicend = struct.unpack("<IIIIIIII476sI", fb[block_offs:block_offs+512])
+                    if (b_magic1 != 0x0A324655 or b_magic2 != 0x9E5D5157):
+                        raise RuntimeError("UF2 block has invalid initial magic numbers")
+                    if (b_magicend != 0x0AB16F30):
+                        raise RuntimeError("UF2 block ends with a wrong magic value")
+                    if (b_flags & 1):
+                        continue # block not for flashing
+                    if (b_flags & 0x8000):
+                        if (b_data[b_payload_size:b_payload_size+4] == bytes([0x04, 0xE3, 0x57, 0x99])):
+                            continue # absolute block for RP2350-E10
+                    ctx.pages.append(FlashPage(b_addr, b_data[:b_payload_size]))
+                #     if (b_flags & 0x2000):
+                #         if not b_filesize_familyid in uniq_familyids:
+                #             uniq_familyids[b_filesize_familyid] = b_addr
+                # print("UF2 families discovered:")
+                # for fid, addr in uniq_familyids.items():
+                #     print(hex(fid), "@", hex(addr))
+                return ctx
+            else:
+                total_pages = len(fb) // 256 + (1 if len(fb) % 256 != 0 else 0)
+                ctx = FlashContext()
+                for p in range(total_pages):
+                    offs = 256 * p
+                    writing_address = FLASH_BASE + offs
+                    ctx.pages.append(FlashPage(writing_address, fb[offs:offs+256]))
+                ctx.pages.sort()
+                return ctx
 
 
 if __name__ == "__main__":
     import sys
+    dry_run = False
     print(f"PicoFlasher test  __main__ routine")
-    if len(sys.argv) < 2:
-        print(f"usage: {sys.argv[0]} path/to/binary")
+
+    def help():
+        print(f"usage: {sys.argv[0]} [--dry-run] path/to/binary")
+        print("\t--dry-run: load binary or uf2, but do not flash")
         exit(1)
+
+    if len(sys.argv) < 2:
+        help()
+    if "--dry-run" in sys.argv: dry_run = True
+
+    positional = [narg for narg in sys.argv if not narg.startswith("-") and narg != sys.argv[0]]
+    if len(positional) == 0:
+        print("Please specify a binary")
+        help()
+
     devs = picoboot.PBDevice.enumerate_devices()
 
     for devn in range(len(devs)):
@@ -100,10 +139,16 @@ if __name__ == "__main__":
     else:
         chosen_n = 0
 
-    test_ctx = PicoFlasher.context_from_file(sys.argv[1])
+    test_ctx = PicoFlasher.context_from_file(positional[0])
     print(test_ctx.pages)
     print(test_ctx)
 
+    if dry_run: exit(0)
+
     flasher = PicoFlasher(devs[chosen_n].bus, devs[chosen_n].address)
-    flasher.do_flash(test_ctx)
+    written_pages = 0
+    for page_written in flasher.do_flash(test_ctx):
+        print(f"\x1b[0KWrote @{page_written.addr:#04x} | {round(written_pages / len(test_ctx.pages), 4) * 100}% total", end="\r")
+        written_pages += 1
+    print()
     flasher.reboot_to_flash()

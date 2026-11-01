@@ -196,7 +196,7 @@ class DebugLevel(Enum):
 
 class PBDevice():
     """PICOBOOT USB Device, found and opened by a usb bus-address. This is the main class for communicating with bootrom, has it's own micro logging system for some reason"""
-    def __init__(self, bus: int, address: int, debug_print: Callable[...] = dprint_dummy, debug_level: DebugLevel = DebugLevel.TRACE):
+    def __init__(self, bus: int, address: int, debug_print: Callable[...] = dprint_dummy, debug_level: DebugLevel = DebugLevel.INFO):
         self.dprint = debug_print
         self.debug_level = debug_level.value
         self.active = True
