@@ -4092,7 +4092,10 @@ def main():
                         elif rnode.platform == ROM.PLATFORM_NRF52 or rnode.platform == ROM.PLATFORM_RP2XXX:
                             rnode_serial.close()
                             RNS.log("Waiting for reset...")
-                            time.sleep(18)
+                            if rnode.platform == ROM.PLATFORM_RP2XXX: # 18 seconds is a bit too much time to waste for RP2XXX -sergds
+                                time.sleep(4)
+                            else:
+                                time.sleep(18)
                             selected_port = None
                             ports = list_ports.comports()
                             for port in ports:
@@ -4324,7 +4327,10 @@ def main():
 
                                 # Give plenty of time for to allow for
                                 # potential e-ink display refresh too.
-                                time.sleep(20)
+                                if rnode.platform == ROM.PLATFORM_RP2XXX: # 20 seconds is a bit too much time to waste for RP2XXX -sergds
+                                    time.sleep(4)
+                                else:
+                                    time.sleep(20)
 
                                 # After the hard reset, the port number will
                                 # change. We need to find the new port number,
