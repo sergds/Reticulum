@@ -230,6 +230,8 @@ specify the target Yggdrasil IPv6 address and port, like so:
       target_host = 201:5d78:af73:5caf:a4de:a79f:3278:71e5
       target_port = 4343
 
+.. _interfaces-fastflap:
+
 Automated Blocking
 ------------------
 Listener instances of ``BackboneInterface`` will automatically block fast-flapping clients,
@@ -964,13 +966,6 @@ Discoverable Interfaces
 Reticulum includes a powerful system for publishing your local interfaces to the wider network, allowing other peers to :ref:`discover, validate, and automatically connect to them<using-interface_discovery>`. This feature is particularly useful for creating decentralized networks where peers can dynamically find entrypoints, such as public Internet gateways or local radio access points, without relying on static configuration files or centralized directories.
 
 When an interface is made **discoverable**, your Reticulum instance will periodically broadcast an announce packet containing the connection details and parameters required for other peers to establish a connection. These announces are propagated over the network using the standard Reticulum announce mechanism using the ``rnstransport.discovery.interface`` destination type.
-
-.. note::
-   To use the interface discovery functionality, the ``LXMF`` module must be installed in your Python environment. You can install it using pip:
-
-   .. code:: sh
-
-     pip install lxmf
 
 
 Enabling Discovery

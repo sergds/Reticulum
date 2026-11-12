@@ -23,6 +23,7 @@ to participate in the development of Reticulum itself.
    zen
    software
    using
+   protecting
    understanding
    hardware
    interfaces

@@ -45,11 +45,14 @@ from collections import deque
 # version tag in announced discovery information.
 IMPLEMENTATION_NAME = "RNS"
 from RNS._version import __version__ as RNS_VERSION
+import RNS.Stamps
 
 NAME            = 0xFF
 TRANSPORT_ID    = 0xFE
 TRANSPORT_IMPL  = 0xFD
 TRANSPORT_VERS  = 0xFC
+DST_COST        = 0xFB
+PR_COST         = 0xFA
 INTERFACE_TYPE  = 0x00
 TRANSPORT       = 0x01
 REACHABLE_ON    = 0x02
@@ -78,17 +81,10 @@ class InterfaceAnnouncer():
                                     "RNodeInterface", "WeaveInterface", "I2PInterface", "KISSInterface"]
 
     def __init__(self, owner):
-        import importlib.util
-        if importlib.util.find_spec('LXMF') != None: from LXMF import LXStamper
-        else:
-            RNS.log("Using on-network interface discovery requires the LXMF module to be installed.", RNS.LOG_CRITICAL)
-            RNS.log("You can install it with the command: pip install lxmf", RNS.LOG_CRITICAL)
-            RNS.panic()
-
         self.owner        = owner
         self.should_run   = False
         self.job_interval = self.JOB_INTERVAL
-        self.stamper      = LXStamper
+        self.stamper      = RNS.Stamps
         self.stamp_cache  = {}
 
         if self.owner.has_network_identity(): identity = self.owner.network_identity
@@ -172,6 +168,8 @@ class InterfaceAnnouncer():
                      TRANSPORT_ID:   RNS.Transport.identity.hash,
                      TRANSPORT_IMPL: IMPLEMENTATION_NAME,
                      TRANSPORT_VERS: RNS_VERSION,
+                     DST_COST:       RNS.Stamps.quantize_cost(interface.destination_cost),
+                     PR_COST:        RNS.Stamps.quantize_cost(interface.pr_cost),
                      NAME:           self.sanitize(interface.discovery_name),
                      LATITUDE:       interface.discovery_latitude,
                      LONGITUDE:      interface.discovery_longitude,
@@ -262,17 +260,10 @@ class InterfaceAnnounceHandler:
     FLAG_ENCRYPTED    = 0b00000010
 
     def __init__(self, required_value=InterfaceAnnouncer.DEFAULT_STAMP_VALUE, callback=None):
-        import importlib.util
-        if importlib.util.find_spec('LXMF') != None: from LXMF import LXStamper
-        else:
-            RNS.log("Using on-network interface discovery requires the LXMF module to be installed.", RNS.LOG_CRITICAL)
-            RNS.log("You can install it with the command: pip install lxmf", RNS.LOG_CRITICAL)
-            RNS.panic()
-
         self.aspect_filter   = APP_NAME+".discovery.interface"
         self.required_value  = required_value
         self.callback        = callback
-        self.stamper         = LXStamper
+        self.stamper         = RNS.Stamps
         self.valid_cache     = {}
         self.valid_cache_max = 2048
         self.invalid_cache   = deque(maxlen=2048)
@@ -300,6 +291,11 @@ class InterfaceAnnounceHandler:
                 signed    = flags & self.FLAG_SIGNED
                 encrypted = flags & self.FLAG_ENCRYPTED
                 fullhash  = RNS.Identity.full_hash(app_data)
+                hops      = RNS.Transport.hops_to(destination_hash)
+
+                if hops > RNS.Transport.PATHFINDER_M-1:
+                    RNS.log(f"Ignored discovered interface with invalid hop count", RNS.LOG_PATHING) if RNS.sl(RNS.LOG_PATHING) else None
+                    return
 
                 if fullhash in self.invalid_cache:
                     RNS.log(f"Ignored previously discovered interface with insufficient stamp value", RNS.LOG_PATHING) if RNS.sl(RNS.LOG_PATHING) else None
@@ -327,18 +323,27 @@ class InterfaceAnnounceHandler:
                         stamp     = app_data[-self.stamper.STAMP_SIZE:]
                         packed    = app_data[:-self.stamper.STAMP_SIZE]
                         infohash  = RNS.Identity.full_hash(packed)
-                        workblock = self.stamper.stamp_workblock(infohash, expand_rounds=InterfaceAnnouncer.WORKBLOCK_EXPAND_ROUNDS)
-                        value     = self.stamper.stamp_value(workblock, stamp)
-                        valid     = self.stamper.stamp_valid(stamp, self.required_value, workblock)
+
+                        # Transitory mechanism, check non-expanded workblock validity first.
+                        workblock_ne  = self.stamper.stamp_workblock(infohash, expand_rounds=0)
+                        valid_ne      = self.stamper.stamp_valid(stamp, self.required_value, workblock_ne)
+                        if valid_ne:
+                            value     = self.stamper.stamp_value(workblock_ne, stamp)
+                            valid     = valid_ne
+
+                        else:
+                            workblock = self.stamper.stamp_workblock(infohash, expand_rounds=InterfaceAnnouncer.WORKBLOCK_EXPAND_ROUNDS)
+                            value     = self.stamper.stamp_value(workblock, stamp)
+                            valid     = self.stamper.stamp_valid(stamp, self.required_value, workblock)
+
                         self.valid_cache[fullhash] = {"valid": valid, "value": value, "packed": packed, "stamp": stamp}
                         while len(self.valid_cache) > self.valid_cache_max: self.valid_cache.pop(next(iter(self.valid_cache)))
 
                 if not valid:
-                    RNS.log(f"Ignored discovered interface with insufficient stamp value {value}", RNS.LOG_DEBUG) if RNS.sl(RNS.LOG_DEBUG) else None
+                    RNS.log(f"Ignored discovered interface with insufficient stamp value {RNS.prettycost(value)}", RNS.LOG_DEBUG) if RNS.sl(RNS.LOG_DEBUG) else None
                     self.invalid_cache.append(fullhash)
                     return
 
-                if value < self.required_value: RNS.log(f"Ignored discovered interface with stamp value {value}", RNS.LOG_DEBUG)
                 else:
                     info     = None
                     unpacked = msgpack.unpackb(packed)
@@ -347,6 +352,8 @@ class InterfaceAnnounceHandler:
                         name           = self.sanitize_name(unpacked[NAME])
                         impl_name      = unpacked[TRANSPORT_IMPL] if TRANSPORT_IMPL in unpacked else None
                         impl_version   = unpacked[TRANSPORT_VERS] if TRANSPORT_VERS in unpacked else None
+                        dst_cost       = RNS.Stamps.quantize_cost(unpacked[DST_COST]) if DST_COST in unpacked else None
+                        pr_cost        = RNS.Stamps.quantize_cost(unpacked[PR_COST]) if PR_COST in unpacked else None
 
                         if type(unpacked[TRANSPORT]) != bool: raise ValueError("Invalid data in transport field of announce")
                         if type(unpacked[LATITUDE])  not in [type(None), float]: raise ValueError("Invalid data in latitude field of announce")
@@ -370,7 +377,9 @@ class InterfaceAnnounceHandler:
                                 "value":        value,
                                 "transport_id": RNS.hexrep(unpacked[TRANSPORT_ID], delimit=False),
                                 "network_id":   RNS.hexrep(announced_identity.hash, delimit=False),
-                                "hops":         RNS.Transport.hops_to(destination_hash),
+                                "dst_cost":     dst_cost,
+                                "pr_cost":      pr_cost,
+                                "hops":         hops,
                                 "latitude":     unpacked[LATITUDE],
                                 "longitude":    unpacked[LONGITUDE],
                                 "height":       unpacked[HEIGHT]}
@@ -466,7 +475,7 @@ class InterfaceAnnounceHandler:
                     if self.callback and callable(self.callback): self.callback(info)
 
         except Exception as e:
-            RNS.log(f"An error occurred while trying to decode discovered interface. The contained exception was: {e}", RNS.LOG_DEBUG)
+            RNS.log(f"Could not decode discovered interface. The contained exception was: {e}", RNS.LOG_DEBUG)
 
 class InterfaceDiscovery():
     THRESHOLD_UNKNOWN  = 24*60*60
@@ -484,7 +493,7 @@ class InterfaceDiscovery():
     DISCOVERABLE_TYPES = ["BackboneInterface", "TCPServerInterface", "I2PInterface", "RNodeInterface", "WeaveInterface", "KISSInterface"]
 
     AUTOCONNECT_IMPLS  = ["RNS"]
-    AUTOCONNECT_MIN_V  = "1.5.2"
+    AUTOCONNECT_MIN_V  = "1.5.7"
 
     AC_TRANSPORT_MODE  = RNS.Interfaces.Interface.Interface.MODE_GATEWAY
     AC_GRAVITY         = 0
@@ -597,7 +606,7 @@ class InterfaceDiscovery():
             hops = info["hops"]; ms = "" if hops == 1 else "s"
             filename = RNS.hexrep(discovery_hash, delimit=False)
             filepath = os.path.join(self.storagepath, filename)
-            RNS.log(f"Discovered {interface_type}{version_str} {hops} hop{ms} away with stamp value {value}: {name}", RNS.LOG_DEBUG)
+            RNS.log(f"Discovered {interface_type}{version_str} {hops} hop{ms} away with stamp value {RNS.prettycost(value)}: {name}", RNS.LOG_DEBUG)
             with self.discovery_lock:
                 if not os.path.isfile(filepath):
                     try:
@@ -780,6 +789,7 @@ class InterfaceDiscovery():
             return seq_name
 
     def autoconnect_qualified(self, info):
+        if not "transport" in info or info["transport"] != True:          return False
         if RNS.Reticulum.should_autoconnect_unverified_implementations(): return True
         if not "impl_name" in info:                                       return False
         if not info["impl_name"] in self.AUTOCONNECT_IMPLS:               return False
@@ -795,11 +805,23 @@ class InterfaceDiscovery():
                 autoconnected_count = self.autoconnect_count()
                 if autoconnected_count < RNS.Reticulum.max_autoconnected_interfaces():
                     interface_type = info["type"]
+                    has_cost_info  = "dst_cost" in info and "pr_cost" in info
                     if interface_type in self.AUTOCONNECT_TYPES:
+                        impl = f"{info['impl_name']} {info['version']}" if ("impl_name" in info and "version" in info and info["impl_name"] and info["version"]) else "unknown implementation"
                         if not self.autoconnect_qualified(info):
-                            impl = f"{info['impl_name']} {info['version']}" if ("impl_name" in info and "version" in info and info["impl_name"] and info["version"]) else "unknown implementation"
                             RNS.log(f"Not auto-connecting discovered {interface_type} {info['name']} ({impl}), auto-connect criteria not satisfied", RNS.LOG_DEBUG)
                             return
+
+                        if has_cost_info:
+                            dst_value = RNS.Stamps.quantize_cost(RNS.Transport.DESTINATION_VALUE)
+                            pr_value  = RNS.Stamps.quantize_cost(RNS.Transport.PR_VALUE)
+                            dst_cost  = RNS.Stamps.quantize_cost(info["dst_cost"] or 0)
+                            pr_cost   = RNS.Stamps.quantize_cost(info["pr_cost"]  or 0)
+                            dst_cost_ok = dst_cost <= dst_value
+                            pr_cost_ok  = pr_cost  <= pr_value
+                            if not dst_cost_ok: RNS.log(f"Destination cost {dst_cost} higher than configured value {dst_value} for {interface_type} {info['name']} ({impl}), not auto-connecting", RNS.LOG_DEBUG)
+                            if not pr_cost_ok:  RNS.log(f"Path request cost {pr_cost} higher than configured value {pr_value} for {interface_type} {info['name']} ({impl}), not auto-connecting", RNS.LOG_DEBUG)
+                            if not dst_cost_ok or not pr_cost_ok: return
 
                         endpoint_hash = self.endpoint_hash(info)
                         exists = self.interface_exists(info)
@@ -893,6 +915,7 @@ class BlackholeUpdater():
 
     def start(self):
         if not self.should_run:
+            RNS.Reticulum.get_instance().wants_destination_type("rnstransport.info.blackhole")
             source_count = len(RNS.Reticulum.blackhole_sources())
             ms = "" if source_count == 1 else "s"
             RNS.log(f"Starting blackhole updater with {source_count} source{ms}", RNS.LOG_DEBUG)
@@ -931,8 +954,9 @@ class BlackholeUpdater():
                     if os.path.isfile(sourcelistpath): os.unlink(sourcelistpath)
                     os.rename(tmppath, sourcelistpath)
                 
-                except Exception as e:
-                    RNS.log(f"Error while persisting blackhole list from {RNS.prettyhexrep(remote_identity.hash)}: {e}", RNS.LOG_ERROR)
+                except Exception as e: RNS.log(f"Error while persisting blackhole list from {RNS.prettyhexrep(remote_identity.hash)}: {e}", RNS.LOG_ERROR)
+
+                RNS.Identity._reset_validation_caches()
 
         RNS.log(f"Blackhole list update from {RNS.prettyhexrep(remote_identity.hash)} completed", RNS.LOG_DEBUG)
 

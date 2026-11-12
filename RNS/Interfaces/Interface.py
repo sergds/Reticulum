@@ -69,7 +69,7 @@ class Interface:
 
     # Maximum amount of ingress limited announces
     # to hold at any given time.
-    MAX_HELD_ANNOUNCES  = 256
+    MAX_HELD_ANNOUNCES  = 64
 
     # Control parameters
     DEFAULT_GRAVITY          = 0
@@ -115,6 +115,7 @@ class Interface:
         self.__hash   = None
 
         self.announce_cap             = RNS.Reticulum.ANNOUNCE_CAP/100.0
+        self.announce_allowed_at      = 0
         self.supports_discovery       = False
         self.discoverable             = False
         self.last_discovery_announce  = 0
@@ -148,6 +149,7 @@ class Interface:
         self.ic_held_release_interval = RNS.Reticulum.get_instance()._default_ic_held_release_interval()
         self.ec_pr_freq               = RNS.Reticulum.get_instance()._default_ec_pr_freq()
         self.egress_control           = RNS.Reticulum.get_instance()._default_egress_control()
+        self.announce_queue           = []
         self.held_announces           = {}
         self.transmit_buffer          = None
 
@@ -159,6 +161,7 @@ class Interface:
         self.protocol_violations = 0
         self.ifac_violations     = 0
         self.packet_filter_hits  = 0
+        self.hop_limiter_hits    = 0
         self.dp_ingress_tcount   = 0
         self.dp_ingress_bytes    = 0
         self.dp_ingress_packets  = 0
@@ -172,6 +175,9 @@ class Interface:
         self._dp_ec_prev_sent    = 0
         self._dp_ec_zero_ticks   = 0
         self._dp_ec_last_drain   = time.time()
+
+        self._destination_cost   = None
+        self._pr_cost            = None
 
         self.reports_phy_stats = False
         self.r_stat_rssi       = None
@@ -324,9 +330,10 @@ class Interface:
         if hasattr(self, "parent_interface") and self.parent_interface != None:
             self.parent_interface.sent_path_request(size=size, from_spawned=True)
 
-    def protocol_violation(self, description=None):
+    def protocol_violation(self, description=None, level=None):
+        if level == None: level = RNS.LOG_DEBUG
         self.protocol_violations += 1
-        RNS.log(f"Protocol violation on {self}: {description}", RNS.LOG_DEBUG) if RNS.sl(RNS.LOG_DEBUG) else None
+        RNS.log(f"Protocol violation on {self}: {description}", level) if RNS.sl(level) else None
         return None
 
     def ifac_violation(self, description=None):
@@ -337,6 +344,20 @@ class Interface:
     def packet_filter_hit(self):
         self.packet_filter_hits += 1
         return None
+
+    def hop_limiter_hit(self):
+        self.hop_limiter_hits += 1
+        return None
+
+    @property
+    def destination_cost(self):
+        if not self._destination_cost == None: return self._destination_cost
+        else:                                  return RNS.Transport.DESTINATION_COST
+
+    @property
+    def pr_cost(self):
+        if not self._pr_cost == None: return self._pr_cost
+        else:                         return RNS.Transport.PR_COST
 
     @property
     def ic_burst_count(self): return None
@@ -389,10 +410,12 @@ class Interface:
             return hz
 
     def process_announce_queue(self):
+        if not self.announce_queue: return
+
         if not hasattr(self, "announce_cap"):
             self.announce_cap = RNS.Reticulum.ANNOUNCE_CAP/100.0
 
-        if hasattr(self, "announce_queue"):
+        if self.announce_queue:
             try:
                 now = time.time()
                 stale = []

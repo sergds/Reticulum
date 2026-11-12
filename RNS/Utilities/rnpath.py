@@ -2,7 +2,7 @@
 
 # Reticulum License
 #
-# Copyright (c) 2016-2025 Mark Qvist
+# Copyright (c) 2016-2026 Mark Qvist
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -102,10 +102,12 @@ def parse_hash(input_str):
 def program_setup(configdir, table, rates, drop, destination_hexhash, verbosity, timeout, drop_queues,
                   drop_via, max_hops, remote=None, management_identity=None, remote_timeout=RNS.Transport.PATH_REQUEST_TIMEOUT,
                   blackholed=False, blackhole=False, unblackhole=False, blackhole_duration=None, blackhole_reason=None,
-                  remote_blackhole_list=False, remote_blackhole_list_filter=None, no_output=False, json=False):
+                  remote_blackhole_list=False, remote_blackhole_list_filter=None, usage=False, no_output=False, json=False):
 
     global remote_link, reticulum
     reticulum = RNS.Reticulum(configdir = configdir, loglevel = 3+verbosity)
+    reticulum.wants_destination_type("rnstransport.remote.management")
+    reticulum.wants_destination_type("rnstransport.info.blackhole")
     if remote:
         try:
             dest_len = (RNS.Reticulum.TRUNCATED_HASHLENGTH//8)*2
@@ -281,13 +283,23 @@ def program_setup(configdir, table, rates, drop, destination_hexhash, verbosity,
             exit()
         
         else:
+            now = time.time()
+            if usage:
+                try: table = sorted(table, key=lambda e: e["used"], reverse=True)
+                except Exception as e: pass
+
+            now = time.time()
             for path in table:
                 if destination_hash == None or destination_hash == path["hash"]:
                     displayed += 1
                     exp_str = RNS.timestamp_str(path["expires"])
                     if path["hops"] == 1: m_str = " "
                     else: m_str = "s"
-                    print(RNS.prettyhexrep(path["hash"])+" is "+str(path["hops"])+" hop"+m_str+" away via "+RNS.prettyhexrep(path["via"])+" on "+path["interface"]+" expires "+RNS.timestamp_str(path["expires"]))
+                    if not "used" in path: u_str = ", no usage info"
+                    else:
+                        if usage: u_str = f", last used {RNS.prettytime(now-path['used'])} ago" if path["used"] else ", never used"
+                        else: u_str = ""
+                    print(f"{RNS.prettyhexrep(path['hash'])} {path['hops']:>3}h via {RNS.prettyhexrep(path['via'])} on {path['interface']} expires in {RNS.prettytime(path['expires']-now, compact=True)} (dv:{RNS.prettycost(path['value'])}/lc:{RNS.prettycost(path['lr_cost'])})")
 
             if destination_hash != None and displayed == 0:
                 print("No path known")
@@ -484,6 +496,7 @@ def main():
         parser.add_argument("--config", action="store", default=None, help="path to alternative Reticulum config directory", type=str)
         parser.add_argument("--version", action="version", version="rnpath {version}".format(version=__version__))
         parser.add_argument("-t", "--table", action="store_true", help="show all known paths", default=False)
+        parser.add_argument("-u", "--usage", action="store_true", help="show path usage time", default=False)
         parser.add_argument("-m", "--max", action="store", metavar="hops", type=int, help="maximum hops to filter path table by", default=None)
         parser.add_argument("-r", "--rates", action="store_true", help="show announce rate info", default=False)
         parser.add_argument("-d", "--drop", action="store_true", help="remove the path to a destination", default=False)
@@ -518,7 +531,7 @@ def main():
                           verbosity = args.verbose, timeout = args.w, drop_queues = args.drop_announces, drop_via = args.drop_via, max_hops = args.max,
                           remote=args.R, management_identity=args.i, remote_timeout=args.W, blackholed=args.blackholed, blackhole=args.blackhole,
                           unblackhole=args.unblackhole, blackhole_duration=args.duration, blackhole_reason=args.reason, remote_blackhole_list=args.blackholed_list,
-                          remote_blackhole_list_filter=args.list_filter, json=args.json)
+                          remote_blackhole_list_filter=args.list_filter, usage=args.usage, json=args.json)
 
             sys.exit(0)
 

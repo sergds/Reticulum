@@ -1,6 +1,6 @@
 # Reticulum License
 #
-# Copyright (c) 2016-2025 Mark Qvist
+# Copyright (c) 2016-2026 Mark Qvist
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -103,7 +103,7 @@ class Packet:
     # With an MTU of 500, the maximum of data we can
     # send in a single encrypted packet is given by
     # the below calculation; 383 bytes.
-    ENCRYPTED_MDU  = math.floor((RNS.Reticulum.MDU-RNS.Identity.TOKEN_OVERHEAD-RNS.Identity.KEYSIZE//16)/RNS.Identity.AES128_BLOCKSIZE)*RNS.Identity.AES128_BLOCKSIZE - 1
+    ENCRYPTED_MDU  = math.floor((RNS.Reticulum.MDU-RNS.Identity.TOKEN_OVERHEAD-RNS.Identity.KEYSIZE//16)/RNS.Identity.AES256_BLOCKSIZE)*RNS.Identity.AES256_BLOCKSIZE - 1
     """
     The maximum size of the payload data in a single encrypted packet 
     """
@@ -279,7 +279,7 @@ class Packet:
             return True
 
         except Exception as e:
-            RNS.log(f"Received malformed packet, dropping it. The contained exception was: {e}", RNS.LOG_DEBUG) if RNS.sl(RNS.LOG_DEBUG) else None
+            RNS.log(f"Dropping malformed packet. The contained exception was: {e}", RNS.LOG_EXTREME) if RNS.sl(RNS.LOG_EXTREME) else None
             return False
 
     def send(self):
