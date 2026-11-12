@@ -186,6 +186,7 @@ class Reticulum:
         # out cleanup operations.
         if not Reticulum.__exit_handler_ran:
             Reticulum.__exit_handler_ran = True
+            Reticulum.__instance.unwants_all_destination_types()
             if not Reticulum.__interface_detach_ran: RNS.Transport.detach_interfaces()
             RNS.Transport.exit_handler()
             RNS.Identity.exit_handler()
@@ -213,7 +214,8 @@ class Reticulum:
         return Reticulum.__instance
 
     def __init__(self,configdir=None, loglevel=None, logdest=None, verbosity=None,
-                 require_shared_instance=False, shared_instance_type=None):
+                 require_shared_instance=False, shared_instance_type=None,
+                 enable_stamping=False, enforce_stamps=False):
         """
         Initialises and starts a Reticulum instance. This must be
         done before any other operations, and Reticulum will not
@@ -348,6 +350,17 @@ class Reticulum:
         RNS.log(f"Utilising cryptography backend \"{RNS.Cryptography.Provider.backend()}\"", RNS.LOG_DEBUG)
         RNS.log(f"Configuration loaded from {self.configpath}", RNS.LOG_VERBOSE)
 
+        if enable_stamping:
+            RNS.log(f"Network stamp generation activated", RNS.LOG_VERBOSE)
+            RNS.Transport.STAMP_DESTINATIONS = True
+            RNS.Transport.STAMP_PRS          = True
+            RNS.Transport.STAMP_LRS          = True
+
+        if enforce_stamps:
+            RNS.log(f"Network stamp enforcement activated", RNS.LOG_VERBOSE)
+            RNS.Transport.STAMPS_ENFORCED    = True
+            RNS.Transport.LR_STAMPS_ENFORCED = True
+
         RNS.Identity.load_known_destinations()
         if not self.is_connected_to_shared_instance: RNS.Identity._clean_ratchets()
         RNS.Transport.start(self)
@@ -471,6 +484,80 @@ class Reticulum:
                     value = self.config["logging"].as_bool(option)
                     RNS.logtimestamps = bool(value)
 
+        if "filter" in self.config:
+            for option in self.config["filter"]:
+                if option == "required_only":
+                    v = self.config["filter"].as_bool(option)
+                    RNS.Transport.required_destinations_only = v
+
+                if option == "ignored_types":
+                    entries = self.config["filter"].as_list(option)
+                    for entry in entries: RNS.Transport.block_destination_type(entry)
+
+                if option == "allowed_types":
+                    entries = self.config["filter"].as_list(option)
+                    for entry in entries: RNS.Transport.allow_destination_type(entry)
+
+                if option == "hop_limiter":
+                    v = self.config["filter"].as_int(option)
+                    RNS.Transport.HOP_LIMITER = max(0, min(v, RNS.Transport.PATHFINDER_M))
+
+        if "stamps" in self.config:
+            for option in self.config["stamps"]:
+                if option == "enforce_stamps":
+                    value = self.config["stamps"].as_bool(option)
+                    if value == True:
+                        RNS.Transport.STAMPS_ENFORCED = True
+                        RNS.Transport.LR_STAMPS_ENFORCED = True
+
+                if option == "stamp_destinations":
+                    value = self.config["stamps"].as_bool(option)
+                    if value == True: RNS.Transport.STAMP_DESTINATIONS = True
+
+                if option == "stamp_prs":
+                    value = self.config["stamps"].as_bool(option)
+                    if value == True: RNS.Transport.STAMP_PRS = True
+
+                if option == "always_stamp_lrs":
+                    value = self.config["stamps"].as_bool(option)
+                    if value == True: RNS.Transport.ALWAYS_STAMP_LRS = True
+
+                if option == "destination_cost":
+                    v = self.config["stamps"].as_float(option)
+                    RNS.Transport.DESTINATION_COST = max(0, min(v, RNS.Transport.STAMP_COST_CAP))
+
+                if option == "destination_value":
+                    v = self.config["stamps"].as_float(option)
+                    RNS.Transport.DESTINATION_VALUE = max(0, min(v, RNS.Transport.STAMP_COST_CAP))
+
+                if option == "pr_cost":
+                    v = self.config["stamps"].as_float(option)
+                    RNS.Transport.PR_COST = max(0, min(v, RNS.Transport.STAMP_COST_CAP))
+
+                if option == "pr_value":
+                    v = self.config["stamps"].as_float(option)
+                    RNS.Transport.PR_VALUE = max(0, min(v, RNS.Transport.STAMP_COST_CAP))
+
+                if option == "lr_cost":
+                    v = self.config["stamps"].as_float(option)
+                    RNS.Transport.LR_COST = max(0, min(v, RNS.Transport.LINK_COST_CAP))
+
+                if option == "lr_stamp_timeout":
+                    v = self.config["stamps"].as_float(option)
+                    RNS.Transport.LINK_STAMP_TIMEOUT = max(0.020, v)
+
+                if option == "pr_stamp_timeout":
+                    v = self.config["stamps"].as_float(option)
+                    RNS.Transport.PR_STAMP_TIMEOUT = max(0.020, v)
+
+                if option == "max_workers":
+                    v = self.config["stamps"].as_int(option)
+                    RNS.Stamps.MAX_WORKERS = max(1, v)
+
+                if option == "worker_niceness":
+                    v = self.config["stamps"].as_int(option)
+                    RNS.Stamps.NICENESS = min(20, max(0, v))
+
         if "reticulum" in self.config:
             for option in self.config["reticulum"]:
                 value = self.config["reticulum"][option]
@@ -509,7 +596,7 @@ class Reticulum:
                 if option == "enable_transport":
                     v = self.config["reticulum"].as_bool(option)
                     if v == True: Reticulum.__transport_enabled = True
-                
+
                 if option == "static_transport_identity":
                     v = self.config["reticulum"].as_bool(option)
                     if v == True: Reticulum.__static_transport_identity = True
@@ -593,7 +680,7 @@ class Reticulum:
                     if v == False: Reticulum.__discover_interfaces = False
                 
                 if option == "required_discovery_value":
-                    v = self.config["reticulum"].as_int(option)
+                    v = self.config["reticulum"].as_float(option)
                     if v > 0: Reticulum.__required_discovery_value = v
                     else:     Reticulum.__required_discovery_value = None
                 
@@ -746,6 +833,22 @@ class Reticulum:
         if self.local_socket_path == None and self.use_af_unix:
             self.local_socket_path = "default"
 
+        if os.path.isfile(Reticulum.configdir+"/blocked_ips"):
+            try:
+                with open(Reticulum.configdir+"/blocked_ips", "r") as f:
+                    expire = time.time()+(60*60*24*365.25*1000)
+                    blocked_ips = f.read().strip().splitlines()
+                    blocked_count = 0
+                    for line in blocked_ips:
+                        blocked_ip = line.strip()
+                        if blocked_ip.startswith("#"): continue
+                        if RNS.Discovery.is_ip_address(blocked_ip):
+                            BackboneInterface.BackboneInterface.fast_flapping[blocked_ip] = [expire, expire, 0xFFFF]
+                            blocked_count += 1
+                    RNS.log(f"Loaded {blocked_count} blocked IPs", RNS.LOG_VERBOSE)
+
+            except Exception as e: RNS.log(f"Error while loading blocked IP list: {e}", RNS.LOG_ERROR)
+
         dql = RNS.Reticulum.default_data_queue_length() or RNS.Transport.INBOUND_DA_QUEUE_LENGTH
         BackboneInterface.BackboneInterface.DP_IC_HIGH_WM  = max(4, int((BackboneInterface.BackboneInterface.DP_IC_HIGH_WM_PCT/100.0) * dql))
         BackboneInterface.BackboneInterface.DP_IC_MID_WM   = max(2, int((BackboneInterface.BackboneInterface.DP_IC_MID_WM_PCT/100.0)  * dql))
@@ -881,10 +984,20 @@ class Reticulum:
         gravity = self._default_gravity()
         if "gravity" in c: gravity = c.as_int("gravity")
 
+        destination_cost = None
+        if "destination_cost" in c:
+            v = c.as_float("destination_cost")
+            destination_cost = max(0, min(v, RNS.Transport.STAMP_COST_CAP))
+
+        pr_cost = None
+        if "pr_cost" in c:
+            v = c.as_float("pr_cost")
+            pr_cost = max(0, min(v, RNS.Transport.STAMP_COST_CAP))
+
         ifac_size = None
         if "ifac_size" in c:
             if c.as_int("ifac_size") >= Reticulum.IFAC_MIN_SIZE*8: ifac_size = c.as_int("ifac_size")//8
-                
+
         ifac_netname = None
         if "networkname" in c:
             if c["networkname"] == "None": RNS.log("Ambiguous IFAC network name \"None\", this value is ignored and an IFAC network name has NOT been set", RNS.LOG_WARNING)
@@ -989,12 +1102,16 @@ class Reticulum:
             discoverable = c.as_bool("discoverable")
             if discoverable:
                 Reticulum.__discovery_enabled = True
+                if not Reticulum.__static_transport_identity and not Reticulum.__transport_enabled:
+                    RNS.log(f"Discoverable interface was configured, enabling static transport identity on non-transport instance", RNS.LOG_WARNING)
+                    Reticulum.__static_transport_identity = True
+
                 if "announce_interval" in c:
                     discovery_announce_interval = c.as_int("announce_interval")*60
                     if discovery_announce_interval < 5*60: discovery_announce_interval = 5*60
 
                 if discovery_announce_interval == None: discovery_announce_interval = 6*60*60
-                if "discovery_stamp_value" in c: discovery_stamp_value = c.as_int("discovery_stamp_value")
+                if "discovery_stamp_value" in c: discovery_stamp_value = c.as_float("discovery_stamp_value")
                 if "discovery_name" in c: discovery_name = c["discovery_name"]
                 if "discovery_encrypt" in c: discovery_encrypt = c.as_bool("discovery_encrypt")
                 if "reachable_on" in c: reachable_on = c["reachable_on"]
@@ -1060,6 +1177,9 @@ class Reticulum:
                     interface.announce_rate_grace             = announce_rate_grace
                     interface.announce_rate_penalty           = announce_rate_penalty
                     interface.ingress_control                 = ingress_control
+
+                    interface._destination_cost               = destination_cost
+                    interface._pr_cost                        = pr_cost
 
                     if egress_control != None:           interface.egress_control           = egress_control
                     if ic_max_held_announces != None:    interface.ic_max_held_announces    = ic_max_held_announces
@@ -1346,7 +1466,7 @@ class Reticulum:
                     filepath = self.cachepath + "/" + filename
                     mtime = os.path.getmtime(filepath)
                     age = now - mtime
-                    if age > RNS.Transport.DESTINATION_TIMEOUT: os.unlink(filepath)
+                    if age > RNS.Transport.PATH_TIMEOUT: os.unlink(filepath)
                     if background: time.sleep(0.001)
             
             except Exception as e:
@@ -1364,6 +1484,7 @@ class Reticulum:
 
     def rpc_loop(self):
         while RNS.Transport._should_run:
+            conn = None
             try:
                 conn = self.rpc_listener.accept()
                 call = mp.unpackb(conn.recv_bytes())
@@ -1383,6 +1504,7 @@ class Reticulum:
                     if path == "lowest_interface_bitrate": self.rpc_return(conn, self.get_lowest_interface_bitrate())
                     if path == "medium_path_timeout":      self.rpc_return(conn, self.get_medium_path_timeout())
                     if path == "link_count":               self.rpc_return(conn, self.get_link_count())
+                    if path == "link_distribution":        self.rpc_return(conn, self.get_link_distribution())
                     if path == "active_link_count":        self.rpc_return(conn, self.get_active_link_count())
                     if path == "packet_rssi":              self.rpc_return(conn, self.get_packet_rssi(call["packet_hash"]))
                     if path == "packet_snr":               self.rpc_return(conn, self.get_packet_snr(call["packet_hash"]))
@@ -1413,6 +1535,23 @@ class Reticulum:
                     identity_hash = call["unblackhole_identity"]
                     self.rpc_return(conn, self.unblackhole_identity(identity_hash))
 
+                if "wants_destination_type" in call:
+                    full_name = call["wants_destination_type"]
+                    requester = call["requester"]
+                    signature = call["signature"]
+                    self.rpc_return(conn, self.wants_destination_type(full_name, requester, signature))
+
+                if "unwants_destination_type" in call:
+                    full_name = call["unwants_destination_type"]
+                    requester = call["requester"]
+                    signature = call["signature"]
+                    self.rpc_return(conn, self.unwants_destination_type(full_name, requester, signature))
+
+                if "unwants_all_destination_types" in call:
+                    requester = call["requester"]
+                    signature = call["signature"]
+                    self.rpc_return(conn, self.unwants_all_destination_types(requester, signature))
+
                 if "destination_data" in call:
                     operation = call["destination_data"]
                     destination_hash = call["destination_hash"]
@@ -1425,10 +1564,8 @@ class Reticulum:
                     identity_hash = call["identity_hash"]
                     if operation == "retain": self.rpc_return(conn, self._retain_identity(identity_hash))
 
-                conn.close()
-
-            except Exception as e:
-                RNS.log("An error ocurred while handling RPC call from local client: "+str(e), RNS.LOG_ERROR)
+            except Exception as e: RNS.log("An error ocurred while handling RPC call from local client: "+str(e), RNS.LOG_ERROR)
+            finally: conn.close() if conn else None
 
     def get_rpc_client(self): return multiprocessing.connection.Client(self.rpc_addr, family=self.rpc_type, authkey=self.rpc_key)
 
@@ -1493,10 +1630,15 @@ class Reticulum:
 
     def get_interface_stats(self):
         if self.is_connected_to_shared_instance:
-            rpc_connection = self.get_rpc_client()
-            rpc_connection.send_bytes(mp.packb({"get": "interface_stats"}))
-            response = mp.unpackb(rpc_connection.recv_bytes())
-            return response
+            try:
+                rpc_connection = self.get_rpc_client()
+                rpc_connection.send_bytes(mp.packb({"get": "interface_stats"}))
+                response = mp.unpackb(rpc_connection.recv_bytes())
+                return response
+
+            except Exception as e:
+                RNS.log(f"Shared instance RPC failed while getting interface stats: {e}", RNS.LOG_ERROR)
+                return None
 
         else:
             interfaces = []
@@ -1531,6 +1673,16 @@ class Reticulum:
                     else:
                         ifstats["tunnelstate"] = None
 
+                if hasattr(interface, "r_stat_rssi"):          ifstats["rssi"] = interface.r_stat_rssi
+                if hasattr(interface, "r_stat_snr"):           ifstats["snr"] = interface.r_stat_snr
+                if hasattr(interface, "r_stat_q"):             ifstats["signal_quality"] = interface.r_stat_q
+                if hasattr(interface, "r_frequency"):          ifstats["frequency"] = interface.r_frequency
+                if hasattr(interface, "r_bandwidth"):          ifstats["bandwidth"] = interface.r_bandwidth
+                if hasattr(interface, "r_txpower"):            ifstats["txpower"] = interface.r_txpower
+                if hasattr(interface, "r_sf"):                 ifstats["sf"] = interface.r_sf
+                if hasattr(interface, "r_cr"):                 ifstats["cr"] = interface.r_cr
+                if hasattr(interface, "r_channel"):            ifstats["channel"] = interface.r_channel
+                if hasattr(interface, "modulation"):           ifstats["modulation"] = interface.modulation
                 if hasattr(interface, "r_airtime_short"):      ifstats["airtime_short"] = interface.r_airtime_short
                 if hasattr(interface, "r_airtime_long"):       ifstats["airtime_long"] = interface.r_airtime_long
                 if hasattr(interface, "r_channel_load_short"): ifstats["channel_load_short"] = interface.r_channel_load_short
@@ -1670,6 +1822,7 @@ class Reticulum:
             pql                  = RNS.Transport.INBOUND_PR_QUEUE_LENGTH
             ilql                 = RNS.Transport.INBOUND_IL_QUEUE_LENGTH
             tql                  = dql+aql+pql+ilql
+            ppcs                 = RNS.Transport.path_pool_counts()
 
             stats                = {}
             stats["interfaces"]  = interfaces
@@ -1691,6 +1844,12 @@ class Reticulum:
             stats["ptxf"]        = RNS.Transport.pr_freq_tx
             stats["rxpps"]       = RNS.Transport.rx_pps
             stats["txpps"]       = RNS.Transport.tx_pps
+            stats["rxpkts"]      = RNS.Transport.rx_packets
+            stats["txpkts"]      = RNS.Transport.tx_packets
+            stats["arxpkts"]     = RNS.Transport.announce_rxc
+            stats["atxpkts"]     = RNS.Transport.announce_txc
+            stats["prxpkts"]     = RNS.Transport.pr_rxc
+            stats["ptxpkts"]     = RNS.Transport.pr_txc
             stats["rxqt"]        = qsnapshot[0]
             stats["rxqd"]        = qsnapshot[1][0]
             stats["rxqa"]        = qsnapshot[1][1]
@@ -1707,6 +1866,12 @@ class Reticulum:
             stats["pqpressure"]  = qsnapshot[1][2]/pql  if qsnapshot[1][2] else 0
             stats["ilqpressure"] = qsnapshot[1][3]/ilql if qsnapshot[1][3] else 0
             stats["txq"]         = None
+            stats["tlinks"]      = RNS.Transport.link_count()
+            stats["alinks"]      = RNS.Transport.active_link_count()
+            stats["plinks"]      = stats["tlinks"]-stats["alinks"]
+            stats["tpcount"]     = ppcs[0]
+            stats["unupcount"]   = ppcs[1]
+            stats["actpcount"]   = stats["tpcount"] - stats["unupcount"]
 
             if Reticulum.transport_enabled():
                 stats["transport_id"] = RNS.Transport.identity.hash
@@ -1726,19 +1891,27 @@ class Reticulum:
 
     def get_path_table(self, max_hops=None):
         if self.is_connected_to_shared_instance:
-            rpc_connection = self.get_rpc_client()
-            rpc_connection.send_bytes(mp.packb({"get": "path_table", "max_hops": max_hops}))
-            response = mp.unpackb(rpc_connection.recv_bytes())
-            return response
+            try:
+                rpc_connection = self.get_rpc_client()
+                rpc_connection.send_bytes(mp.packb({"get": "path_table", "max_hops": max_hops}))
+                response = mp.unpackb(rpc_connection.recv_bytes())
+                return response
+            except Exception as e:
+                RNS.log(f"Shared instance RPC failed while getting path table: {e}", RNS.LOG_ERROR)
+                return []
 
         else:
             path_table = []
             for dst_hash in RNS.Transport.path_table:
                 path_hops = RNS.Transport.path_table[dst_hash][2]
                 if max_hops == None or path_hops <= max_hops:
+                    known_destination = RNS.Identity.known_destinations.get(dst_hash, None)
+                    dst_value = known_destination[6] if known_destination else None
+                    lr_cost   = known_destination[7] if known_destination else None
                     entry = { "hash": dst_hash, "timestamp": RNS.Transport.path_table[dst_hash][0],
                               "via": RNS.Transport.path_table[dst_hash][1], "hops": path_hops,
-                              "expires": RNS.Transport.path_table[dst_hash][3],
+                              "expires": RNS.Transport.path_table[dst_hash][3], "value": dst_value,
+                              "used": RNS.Transport.path_table[dst_hash][7], "lr_cost": lr_cost,
                               "interface": str(RNS.Transport.path_table[dst_hash][5]) }
                     path_table.append(entry)
 
@@ -1746,22 +1919,21 @@ class Reticulum:
 
     def get_rate_table(self):
         if self.is_connected_to_shared_instance:
-            rpc_connection = self.get_rpc_client()
-            rpc_connection.send_bytes(mp.packb({"get": "rate_table"}))
-            response = mp.unpackb(rpc_connection.recv_bytes())
-            return response
+            try:
+                rpc_connection = self.get_rpc_client()
+                rpc_connection.send_bytes(mp.packb({"get": "rate_table"}))
+                response = mp.unpackb(rpc_connection.recv_bytes())
+                return response
+            except Exception as e:
+                RNS.log(f"Shared instance RPC failed while getting rate table: {e}", RNS.LOG_ERROR)
+                return []
 
         else:
             rate_table = []
-            for dst_hash in RNS.Transport.announce_rate_table:
-                entry = {
-                    "hash": dst_hash,
-                    "last": RNS.Transport.announce_rate_table[dst_hash]["last"],
-                    "rate_violations": RNS.Transport.announce_rate_table[dst_hash]["rate_violations"],
-                    "blocked_until": RNS.Transport.announce_rate_table[dst_hash]["blocked_until"],
-                    "timestamps": RNS.Transport.announce_rate_table[dst_hash]["timestamps"],
-                }
-                rate_table.append(entry)
+            with RNS.Transport.announce_rate_table_lock:
+                for dst_hash, entry in RNS.Transport.announce_rate_table.items():
+                    entry["hash"] = dst_hash
+                    rate_table.append(entry)
 
             return rate_table
 
@@ -1911,12 +2083,30 @@ class Reticulum:
         else:
             return RNS.Transport.active_link_count()
 
+    def get_link_distribution(self):
+        if self.is_connected_to_shared_instance:
+            try:
+                rpc_connection = self.get_rpc_client()
+                rpc_connection.send_bytes(mp.packb({"get": "link_distribution"}))
+                response = mp.unpackb(rpc_connection.recv_bytes())
+                return response
+            except Exception as e:
+                RNS.log(f"Shared instance RPC failed while getting link distribution: {e}", RNS.LOG_ERROR)
+                return None
+
+        else:
+            return RNS.Transport.link_distribution()
+
     def get_packet_rssi(self, packet_hash):
         if self.is_connected_to_shared_instance:
-            rpc_connection = self.get_rpc_client()
-            rpc_connection.send_bytes(mp.packb({"get": "packet_rssi", "packet_hash": packet_hash}))
-            response = mp.unpackb(rpc_connection.recv_bytes())
-            return response
+            try:
+                rpc_connection = self.get_rpc_client()
+                rpc_connection.send_bytes(mp.packb({"get": "packet_rssi", "packet_hash": packet_hash}))
+                response = mp.unpackb(rpc_connection.recv_bytes())
+                return response
+            except Exception as e:
+                RNS.log(f"Shared instance RPC failed while getting packet RSSI: {e}", RNS.LOG_ERROR)
+                return None
 
         else:
             for entry in RNS.Transport.local_client_rssi_cache:
@@ -1927,10 +2117,14 @@ class Reticulum:
 
     def get_packet_snr(self, packet_hash):
         if self.is_connected_to_shared_instance:
-            rpc_connection = self.get_rpc_client()
-            rpc_connection.send_bytes(mp.packb({"get": "packet_snr", "packet_hash": packet_hash}))
-            response = mp.unpackb(rpc_connection.recv_bytes())
-            return response
+            try:
+                rpc_connection = self.get_rpc_client()
+                rpc_connection.send_bytes(mp.packb({"get": "packet_snr", "packet_hash": packet_hash}))
+                response = mp.unpackb(rpc_connection.recv_bytes())
+                return response
+            except Exception as e:
+                RNS.log(f"Shared instance RPC failed while getting packet SNR: {e}", RNS.LOG_ERROR)
+                return None
 
         else:
             for entry in RNS.Transport.local_client_snr_cache:
@@ -1941,10 +2135,14 @@ class Reticulum:
 
     def get_packet_q(self, packet_hash):
         if self.is_connected_to_shared_instance:
-            rpc_connection = self.get_rpc_client()
-            rpc_connection.send_bytes(mp.packb({"get": "packet_q", "packet_hash": packet_hash}))
-            response = mp.unpackb(rpc_connection.recv_bytes())
-            return response
+            try:
+                rpc_connection = self.get_rpc_client()
+                rpc_connection.send_bytes(mp.packb({"get": "packet_q", "packet_hash": packet_hash}))
+                response = mp.unpackb(rpc_connection.recv_bytes())
+                return response
+            except Exception as e:
+                RNS.log(f"Shared instance RPC failed while getting packet link quality: {e}", RNS.LOG_ERROR)
+                return None
 
         else:
             for entry in RNS.Transport.local_client_q_cache:
@@ -2036,6 +2234,62 @@ class Reticulum:
             
             else: return RNS.Transport.unblackhole_identity(identity_hash)
 
+    # For now, this is available on shared instance clients
+    # only, so an application cannot squelch announce ingress
+    # for other applications and the node as a whole.
+    def required_announces_only(self, enabled=True):
+        if not enabled in [True, False]: return False
+        if not self.is_connected_to_shared_instance: return False
+        else: RNS.Transport.required_destinations_only = enabled
+        if enabled: RNS.log(f"Setting announce filtering to required only", RNS.LOG_DEBUG)
+        else:       RNS.log(f"Setting announce filtering to all", RNS.LOG_DEBUG)
+        return True
+
+    def wants_destination_type(self, full_name, requester=None, signature=None):
+        if not requester: requester = RNS.Transport.application_identity.hash
+        if self.is_connected_to_shared_instance:
+            try:
+                RNS.Transport._wants_destination_type(full_name, requester, signature)
+                rpc_connection = self.get_rpc_client()
+                rpc_connection.send_bytes(mp.packb({"wants_destination_type": full_name, "requester": requester, "signature": signature}))
+                response = mp.unpackb(rpc_connection.recv_bytes())
+                return response
+            except Exception as e:
+                RNS.log(f"Shared instance RPC failed while setting destination type filters: {e}", RNS.LOG_DEBUG)
+                return False
+
+        else: return RNS.Transport._wants_destination_type(full_name, requester, signature)
+
+    def unwants_destination_type(self, full_name, requester=None, signature=None):
+        if not requester: requester = RNS.Transport.application_identity.hash
+        if self.is_connected_to_shared_instance:
+            try:
+                RNS.Transport._unwants_destination_type(full_name, requester, signature)
+                rpc_connection = self.get_rpc_client()
+                rpc_connection.send_bytes(mp.packb({"unwants_destination_type": full_name, "requester": requester, "signature": signature}))
+                response = mp.unpackb(rpc_connection.recv_bytes())
+                return response
+            except Exception as e:
+                RNS.log(f"Shared instance RPC failed while setting destination type filters: {e}", RNS.LOG_DEBUG)
+                return False
+
+        else: return RNS.Transport._unwants_destination_type(full_name, requester, signature)
+
+    def unwants_all_destination_types(self, requester=None, signature=None):
+        if not requester: requester = RNS.Transport.application_identity.hash
+        if self.is_connected_to_shared_instance:
+            try:
+                RNS.Transport._unwants_all_destination_types(requester, signature)
+                rpc_connection = self.get_rpc_client()
+                rpc_connection.send_bytes(mp.packb({"unwants_all_destination_types": True, "requester": requester, "signature": signature}))
+                response = mp.unpackb(rpc_connection.recv_bytes())
+                return response
+            except Exception as e:
+                RNS.log(f"Shared instance RPC failed while setting destination type filters: {e}", RNS.LOG_DEBUG)
+                return False
+
+        else: return RNS.Transport._unwants_all_destination_types(requester, signature)
+
     @staticmethod
     def should_use_implicit_proof():
         """
@@ -2096,7 +2350,7 @@ class Reticulum:
         Returns the required stamp value for a discovered interface
         to be considered valid and remembered.
 
-        :returns: The required stamp value as an integer.
+        :returns: The required stamp value as a float.
         """
         return Reticulum.__required_discovery_value
 
@@ -2192,7 +2446,8 @@ class Reticulum:
         return Reticulum.__inbound_il_queue_length
 
 # Default configuration file:
-__default_rns_config__ = '''# This is the default Reticulum config file.
+__default_rns_config__ = '''##########################################################
+# This is the default Reticulum config file.
 # You should probably edit it to include any additional,
 # interfaces and settings you might need.
 
@@ -2276,6 +2531,22 @@ instance_name = default
 
 # blackhole_sources = 521c87a83afb8f29e4455e77930b973b
 
+##########################################################
+# This section configures stamping behaviour and defaults.
+# In most cases, you do not need to change this, but on
+# constrained systems especially, tuning these parameters
+# can be very beneficial. See "rnsd --exampleconfig" or
+# the manual for a full explanation of these parameters.
+
+[stamps]
+
+# destination_cost = 23.5
+# destination_value = 25.0
+# pr_cost = 15.8
+# pr_value = 15.8
+# lr_cost = 12.5
+# lr_stamp_timeout = 15
+# pr_stamp_timeout = 15
 
 [logging]
 # Valid log levels are 0 through 8:
@@ -2291,7 +2562,7 @@ instance_name = default
 
 loglevel = 4
 
-
+##########################################################
 # The interfaces section defines the physical and virtual
 # interfaces Reticulum will use to communicate on. This
 # section will contain examples for a variety of interface

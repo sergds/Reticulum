@@ -1,6 +1,6 @@
 # Reticulum License
 #
-# Copyright (c) 2016-2025 Mark Qvist
+# Copyright (c) 2016-2026 Mark Qvist
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -41,6 +41,7 @@ import bisect
 from ._version import __version__
 from collections import deque
 from functools import partial, wraps
+from RNS.Stamps import quantize_cost
 
 py_modules  = glob.glob(os.path.dirname(__file__)+"/*.py")
 pyc_modules = glob.glob(os.path.dirname(__file__)+"/*.pyc")
@@ -86,7 +87,7 @@ instance_random.seed(os.urandom(10))
 
 _always_override_destination = False
 
-logging_lock = threading.Lock()
+logging_lock = threading.RLock()
 
 def loglevelname(level):
     if (level == LOG_CRITICAL): return "[Critical]"
@@ -178,6 +179,11 @@ def prettyhexrep(data):
     delimiter = ""
     hexrep = "<"+delimiter.join("{:02x}".format(c) for c in data)+">"
     return hexrep
+
+def prettycost(value):
+    if value == None: return "n"
+    elif not type(value) in (float, int): return "n"
+    else: return f"{quantize_cost(value):.3f}"
 
 def prettyspeed(num, suffix="b"):
     return prettysize(num/8, suffix=suffix)+"ps"

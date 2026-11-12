@@ -1,27 +1,78 @@
-### 2026-09-29: RNS 1.5.5
+### RNS 1.6.0
 
-This release adds live interface attach, detach and reload, as well as significant improvements to interface discovery. Auto-connecting interfaces is now also supported on Windows and macOS.
+This major release of Reticulum brings significant improvements to resource consumption, performance, stability and resilience, especially for constrained devices and nodes.
 
-It also brings improvements to `rngit` and fixes discovered `I2PInterface` configuration snippets, along with a number of other bugs.
+**Memory & Performance Improvements**
+
+A new, SQLite based storage backend has been implemented, and is now the default. All legacy file-based storage will be auto-migrated to the database-backed store on the first start. If you are using an esoteric system that does not support the `sqlite3` module, Reticulum will automatically fall back to using the file-based storage system.
+
+The memory management system has been completely reworked, and significantly improved. For long-running transport nodes, this cuts memory consumption by approximately 50%, and for non-transport instances, standalone applications and appliance devices by up to 80%.
+
+**Path Table Sharding**
+
+This release implements the initial transport awareness and mechanisms for emergent path table sharding. Transport instances will no longer attempt to hold full inter-network path tables in memory, but keep only paths relevant to the nodes they are transporting traffic for. Unused paths are now kept for much shorter periods of time, and used as a rolling pool that potential new traffic corridors can form into. The system is entirely passive, and adds no inter-node coordination or additional protocol mechanics. The current release brings the foundation, and the upcoming 1.6.x releases will tune, improve it and add the remaining pieces of the functionality.
+
+**Network Stamps**
+
+The stamp system, first introduced in LXMF, where it was tested and refined over the last two years, has now been brought into the core of Reticulum to help protect against spam and network abuse. All the relevant core primtives now support stamp generation and verification:
+
+- Identities can be created with an embedded stamp value. This adds no additional bytes or identity format changes. Generation and verification is completely transparent, and carried within the Reticulum Identity keyset.
+- Destinations can now be stamped, and will embed stamps and required link request cost in their announces. The change is backwards-compatible, so even older versions of Reticulum carry stamped announces transparently. Destination stamps are one-time generations, stored and persisted on success, so these have relatively high default target values. Expect some CPU usage when an unstamped destination has its stamp generated for the first time on 1.6.0+.
+- Path requests can now be stamped, and are also backwards-compatible. A stamped path request will be carried transparently by non stamp-aware transport nodes.
+- Link requests are stamped according to the announced link request cost of the destination. As with all the other primitives, these are also completely transparent and backwards-compatible. The stamp is carried embedded in the ephemeral link request keyset.
+
+The stamp functionality and requirements will be deployed in a phased transition, so both network operators and application developers have time to update their systems, and any potential bugs and issues can be worked out before the full deployment:
+
+- Version `1.6.0` implements all the core functionality and primitives, and starts excercising the verification mechanics. By default, no destination and path request stamps are generated yet in this release, and while stamps are checked and verified, they are not *enforced*. However, both stamp emission and enforcement can be enabled in the configuration for testing or early opt-in. Link request stamps *will* be generated, if the destination has announced a cost.
+- Version `1.6.1` will enable stamp emission for all network primitives by default. Old, unstamped destinations will have their stamps generated automatically on their first announce, and will start announcing link request costs as configured. Enforcement in this phase will still be disabled by default, but can be enabled by configuration.
+- Version `1.6.2` will complete the transition to network stamps. All functionality will now be enabled by default, including enforcement. Destination announces, path requests and link requests that do not meet stamp requirements will be dropped. Any old transport nodes that have not updated to `1.6.x` will not be able to communicate with stamp-enforcing nodes, but will still *carry traffic for* stamp-capable systems.
+
+The `1.6.0` and `1.6.1` releases will be an important time for observing the on-network behaviour, functionality and stability of the system, and to make any potential adjustments or fix problems before the final transition to `1.6.2`. If you're operating a transport node, please help out by reporting any problems or issues you discover.
+
+**For application developers**, there is no immediate refactoring or changes required application-side. Simply updating RNS to `1.6.0` is sufficient to transparently enable all the new functionality and improvements. It is very much recommended, however, to familiarize yourself with the new API methods for specifying link request costs and destination values, as these are configurable on a per-destination basis, and might warrant specific configuration for your intended use-case.
 
 **Changes**
-- Added ability to `--attach`, `--detach` and `--reload` interfaces to the `rnstatus` utility
-- Added interface discovery auto-connect support on Windows and macOS
-- Added ability to download micron-converted versions of markdown files to the `rngit` page node
-- Added workdoc counts to filter scope links to the `rngit` page node
-- Added version info to `rnstatus` discovered interfaces output
-- Added `--show-stale` and `--show-unknown` options to `rnstatus`
-- Added sequential naming of auto-connected interfaces on announced name collisions
-- Added auto-connect implementation and version criteria filtering
-- Added configuration option for allowing auto-connects to discovered interfaces with missing version info
-- Improved sanitization of nonsensical interface discovery IFAC announce data
-- Fixed `I2PInterface` discovery config snippets not including `.b32.i2p`
-- Fixed timeout and response rejects not being processed for single-packet requests, by **JRG**
-- Fixed missing configurable property propagations on spawned interfaces, by **JRG**
-- Fixed ingress control producer comprehension at mid-watermark using incorrect variable name for interface type check, by **JRG**
-- Fixed instances of `announce_cap` property ensurance logic not storing announce cap value as a fraction, by **JRG**
-- Fixed a potential race condition in `LocalInterface` initialization.
-- Updated documentation and manual
+- Added `Identity` stamps
+- Added destination and announce stamps
+- Added path request stamps
+- Added link request stamps
+- Added link request cost signalling to announces
+- Added fractional stamp value support
+- Added path usage tracking
+- Added automatic path table culling based on traffic and usage
+- Added path retainment prioritization for slow interfaces
+- Added unused path pool monitoring and handling
+- Added managed storage backend using SQLite
+- Added fallback to legacy file-based storage if SQLite is unavailable
+- Added managed storage for known destinations and ratchets
+- Added managed storage for cached announces
+- Added memory-density optimized announce rate table implementation
+- Added memory-density optimized packet hashlist implementation
+- Added heap-tracking memory management
+- Added more comprehensive metrics to status output structure
+- Added improved filtering backend capabilities
+- Added new `[filter]` configuration section
+- Added `hop_limiter` configuration option
+- Added allow and ignore lists for destination types
+- Added ability for applications to receive required announces only
+- Added cost-aware interface discovery and auto-connects
+- Added cost and value display to `rnstatus` and `rnpath` utilities
+- Added `app_flag` signalling to resource advertisements
+- Added link MTU aware resource advertisements
+- Significantly improved inbound announce handling performance
+- Significantly improved stamper performance on Android
+- Significantly improved announce handler callback performance
+- Optimized and improved stamper implementation
+- Optimized announce rate table handling
+- Optimized packet filter hashlist handling
+- Improved early filtering and malformed packet detection
+- Improved path request protocol violation handling
+- Fixed `RNodeInterface` phy stats regression on Android
+- Fixed missing interface parameter inheritances
+- Fixed `rngit` default config path typo for `~/.config/rngit` case
+- Fixed invalid RPC error handling in some cases
+- Fixed various minor bugs and inconsistencies
+- Updated documentation
 
 **Verified Retrieval**
 You can retrieve and verify this release over Reticulum using the built-in `rngit release` utility. To retrieve only the installation `.whl` package, and the release manifest for future updates, you can use:
@@ -50,6 +101,46 @@ rnid -i bc7291552be7a58f361522990465165c -V rns_*.rsm *.rsg
 ```
 
 The `rnid` utility will then verify the signatures, and display whether they are valid. If the signature cannot be verified, the release has been tampered with and should be discarded.
+
+### 2026-10-05: RNS 1.5.7
+
+This maintenance release fixes a bug in the dataplane egress control handling.
+
+**Changes**
+- Fixed egress control TX stall state deadlock on BackboneInterface initiator instances
+
+### 2026-10-02: RNS 1.5.6
+
+This maintenance release improves interface discovery handling.
+
+**Changes**
+- Fixed ephemeral transport identity being possible when discoverable interfaces are present on non-transport instances
+- Ensure only transport-enabled interfaces are autoconnected at discovery time
+
+### 2026-09-29: RNS 1.5.5
+
+This release adds live interface attach, detach and reload, as well as significant improvements to interface discovery. Auto-connecting interfaces is now also supported on Windows and macOS.
+
+It also brings improvements to `rngit` and fixes discovered `I2PInterface` configuration snippets, along with a number of other bugs.
+
+**Changes**
+- Added ability to `--attach`, `--detach` and `--reload` interfaces to the `rnstatus` utility
+- Added interface discovery auto-connect support on Windows and macOS
+- Added ability to download micron-converted versions of markdown files to the `rngit` page node
+- Added workdoc counts to filter scope links to the `rngit` page node
+- Added version info to `rnstatus` discovered interfaces output
+- Added `--show-stale` and `--show-unknown` options to `rnstatus`
+- Added sequential naming of auto-connected interfaces on announced name collisions
+- Added auto-connect implementation and version criteria filtering
+- Added configuration option for allowing auto-connects to discovered interfaces with missing version info
+- Improved sanitization of nonsensical interface discovery IFAC announce data
+- Fixed `I2PInterface` discovery config snippets not including `.b32.i2p`
+- Fixed timeout and response rejects not being processed for single-packet requests, by **JRG**
+- Fixed missing configurable property propagations on spawned interfaces, by **JRG**
+- Fixed ingress control producer comprehension at mid-watermark using incorrect variable name for interface type check, by **JRG**
+- Fixed instances of `announce_cap` property ensurance logic not storing announce cap value as a fraction, by **JRG**
+- Fixed a potential race condition in `LocalInterface` initialization.
+- Updated documentation and manual
 
 ### 2026-09-11: RNS 1.5.4
 

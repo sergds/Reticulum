@@ -2,7 +2,7 @@
 
 # Reticulum License
 #
-# Copyright (c) 2016-2025 Mark Qvist
+# Copyright (c) 2016-2026 Mark Qvist
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -387,6 +387,7 @@ def fetch(configdir, identitypath = None, verbosity = 0, quietness = 0, destinat
         RNS.exit(1)
 
     reticulum = RNS.Reticulum(configdir=configdir, loglevel=targetloglevel)
+    reticulum.wants_destination_type(f"{APP_NAME}.receive")
 
     if identity == None:
         prepare_identity(identitypath)
@@ -643,6 +644,7 @@ def send(configdir, identitypath = None, verbosity = 0, quietness = 0, destinati
     print(f"{erase_str}", end="")
 
     reticulum = RNS.Reticulum(configdir=configdir, loglevel=targetloglevel)
+    reticulum.wants_destination_type(f"{APP_NAME}.receive")
 
     if identity == None:
         prepare_identity(identitypath)

@@ -230,6 +230,8 @@ specify the target Yggdrasil IPv6 address and port, like so:
       target_host = 201:5d78:af73:5caf:a4de:a79f:3278:71e5
       target_port = 4343
 
+.. _interfaces-fastflap:
+
 Automated Blocking
 ------------------
 Listener instances of ``BackboneInterface`` will automatically block fast-flapping clients,
@@ -965,13 +967,6 @@ Reticulum includes a powerful system for publishing your local interfaces to the
 
 When an interface is made **discoverable**, your Reticulum instance will periodically broadcast an announce packet containing the connection details and parameters required for other peers to establish a connection. These announces are propagated over the network using the standard Reticulum announce mechanism using the ``rnstransport.discovery.interface`` destination type.
 
-.. note::
-   To use the interface discovery functionality, the ``LXMF`` module must be installed in your Python environment. You can install it using pip:
-
-   .. code:: sh
-
-     pip install lxmf
-
 
 Enabling Discovery
 ------------------
@@ -1486,11 +1481,11 @@ but all the parameters are exposed for configuration if needed.
      sub-interfaces when a new client connects. 
 
  * | The ``ic_burst_freq_new`` option sets the maximum announce ingress
-     frequency for newly spawned interfaces. Defaults to ``3.5``
+     frequency for newly spawned interfaces. Defaults to ``3.0``
      announces per second.
 
  * | The ``ic_burst_freq`` option sets the maximum announce ingress
-     frequency for other interfaces. Defaults to ``12`` announces
+     frequency for other interfaces. Defaults to ``10.0`` announces
      per second.
 
      *If an interface exceeds its burst frequency, incoming announces
@@ -1499,21 +1494,21 @@ but all the parameters are exposed for configuration if needed.
 
  * | The ``ic_max_held_announces`` option sets the maximum amount of
      unique announces that will be held in the queue. Any additional
-     unique announces will be dropped. Defaults to ``256`` announces.
+     unique announces will be dropped. Defaults to ``64`` announces.
 
  * | The ``ic_burst_hold`` option sets how much time (in seconds) must
      pass after the burst frequency drops below its threshold, for the
-     announce burst to be considered cleared. Defaults to ``60``
+     announce burst to be considered cleared. Defaults to ``15``
      seconds.
 
  * | The ``ic_burst_penalty`` option sets how much time (in seconds) must
      pass after the burst is considered cleared, before held announces can
-     start being released from the queue. Defaults to ``5*60``
+     start being released from the queue. Defaults to ``15``
      seconds.
 
  * | The ``ic_held_release_interval`` option sets how much time (in seconds)
      must pass between releasing each held announce from the queue. Defaults
-     to ``30`` seconds.
+     to ``5`` seconds.
 
 All of the above settings can be configured both as instance-wide defaults
 under the ``[reticulum]`` section of the configuration file, or on a per-

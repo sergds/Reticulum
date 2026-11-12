@@ -2,7 +2,7 @@
 
 # Reticulum License
 #
-# Copyright (c) 2016-2025 Mark Qvist
+# Copyright (c) 2016-2026 Mark Qvist
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -171,6 +171,7 @@ def program_setup(configdir, dispall=False, verbosity=0, name_filter=None, json=
             must_exit = False
         else:
             reticulum = RNS.Reticulum(configdir=configdir, loglevel=3+verbosity, require_shared_instance=require_shared)
+            reticulum.wants_destination_type("rnstransport.remote.management")
 
     except Exception as e:
         print("No shared RNS instance available to get status from")
@@ -261,6 +262,14 @@ def program_setup(configdir, dispall=False, verbosity=0, name_filter=None, json=
                         last_heard_display = f"{RNS.prettytime(hago, compact=True)} ago"
                         transport_str = "Enabled" if i["transport"] else "Disabled"
 
+                        has_cost_info = "dst_cost" in i and "pr_cost" in i
+                        dst_cost = None; pr_cost = None
+                        if not has_cost_info: cost_str = "Unknown"
+                        else:
+                            dst_cost = i["dst_cost"]
+                            pr_cost  = i["pr_cost"]
+                            cost_str = f"Dst {RNS.prettycost(dst_cost)}, PR {RNS.prettycost(pr_cost)}"
+
                         if i["latitude"] is not None and i["longitude"] is not None:
                             lat = round(i["latitude"], 4)
                             lon = round(i["longitude"], 4)
@@ -287,6 +296,8 @@ def program_setup(configdir, dispall=False, verbosity=0, name_filter=None, json=
                         print(f"Stack        : {impl_str}")
                         print(f"Status       : {status_display}")
                         print(f"Transport    : {transport_str}")
+                        print(f"Stamp Value  : {RNS.prettycost(i['value'])}")
+                        print(f"Costs        : {cost_str}") if has_cost_info else None
                         print(f"Distance     : {i['hops']} hop{'' if i['hops'] == 1 else 's'}")
                         print(f"Discovered   : {discovered_display}")
                         print(f"Last Heard   : {last_heard_display}")
@@ -299,8 +310,6 @@ def program_setup(configdir, dispall=False, verbosity=0, name_filter=None, json=
                         if "modulation" in i:   print(f"Modulation   : {i['modulation']}")
                         if "reachable_on" in i: print(f"Address      : {i['reachable_on']}")
                         if "port" in i:         print(f"Port         : {i['port']}")
-
-                        print(f"Stamp Value  : {i['value']}")
 
                         print(f"\nConfiguration Entry:")
                         config_lines = i["config_entry"].split('\n')
@@ -345,7 +354,7 @@ def program_setup(configdir, dispall=False, verbosity=0, name_filter=None, json=
                             days = int(diff / 86400)
                             last_heard_display = f"{days}d ago"
                         
-                        value = str(i["value"])
+                        value = RNS.prettycost(i["value"])
                         
                         if i["latitude"] is not None and i["longitude"] is not None:
                             lat = round(i["latitude"], 4)
@@ -914,7 +923,9 @@ def main(must_exit=True, rns_instance=None):
             if args.R: require_shared = False
             else:      require_shared = True
           
-            try: reticulum = RNS.Reticulum(configdir=configarg, loglevel=3+args.verbose, require_shared_instance=require_shared)
+            try:
+                reticulum = RNS.Reticulum(configdir=configarg, loglevel=3+args.verbose, require_shared_instance=require_shared)
+                reticulum.wants_destination_type("rnstransport.remote.management")
             except Exception as e:
                 print("No shared RNS instance available to get status from")
                 exit(1)

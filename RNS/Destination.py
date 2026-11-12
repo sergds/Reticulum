@@ -1,6 +1,6 @@
 # Reticulum License
 #
-# Copyright (c) 2016-2025 Mark Qvist
+# Copyright (c) 2016-2026 Mark Qvist
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -35,6 +35,8 @@ import threading
 import RNS
 
 from RNS.Cryptography import Token
+from RNS.Stamps import generate_stamp, store_destination_stamp, load_destination_stamp
+from RNS.Stamps import cost_to_bytes, quantize_cost
 from .vendor import umsgpack as umsgpack
 
 class Callbacks:
@@ -146,6 +148,14 @@ class Destination:
 
         return Destination.hash(identity, app_name, *aspects)
 
+    @staticmethod
+    def name_hash(full_name):
+        components = Destination.app_and_aspects_from_name(full_name)
+        app_name = str(components[0])
+        aspects  = f".{'.'.join(components[1])}" if components[1] else ""
+        name     = f"{app_name}{aspects}".encode("utf-8")
+        return RNS.Identity.full_hash(name)[:(RNS.Identity.NAME_HASH_LENGTH//8)]
+
     def __init__(self, identity, direction, type, app_name, *aspects):
         # Check input values and build name string
         if "." in app_name: raise ValueError("Dots can't be used in app names") 
@@ -159,6 +169,11 @@ class Destination:
         self.type = type
         self.direction = direction
         self.proof_strategy = Destination.PROVE_NONE
+        self.stamp = None
+        self.stamp_value = None
+        self.stamp_generation_lock = threading.Lock()
+        self._target_value = RNS.Transport.DESTINATION_VALUE
+        self._link_cost = None
         self.ratchets = None
         self.ratchets_path = None
         self.ratchet_interval = Destination.RATCHET_INTERVAL
@@ -189,6 +204,13 @@ class Destination:
         self.hash = Destination.hash(self.identity, app_name, *aspects)
         self.name_hash = RNS.Identity.full_hash(self.expand_name(None, app_name, *aspects).encode("utf-8"))[:(RNS.Identity.NAME_HASH_LENGTH//8)]
         self.hexhash = self.hash.hex()
+
+        # Load existing stamp if available
+        if self.direction == Destination.IN and self.identity != None and self.identity.prv != None and RNS.Transport.STAMP_DESTINATIONS:
+            stamp_entry = load_destination_stamp(self.hash, self.stamp_material(), RNS.Transport.DESTINATION_COST)
+            if stamp_entry != None:
+                self.stamp, self.stamp_value = stamp_entry
+                RNS.log(f"Loaded stamp with value {RNS.prettycost(self.stamp_value)} for {self}", RNS.LOG_DEBUG)
 
         self.default_app_data = None
         self.callback = None
@@ -241,6 +263,26 @@ class Destination:
 
         return False
 
+    def _await_stamp(self):
+        with self.stamp_generation_lock:
+            if self.stamp == None or self.stamp_value == None or self.stamp_value < quantize_cost(self.target_value):
+                stamp_entry = load_destination_stamp(self.hash, self.stamp_material(), self.target_value)
+                if stamp_entry != None: self.stamp, self.stamp_value = stamp_entry
+                else:
+                    stamp, stamp_value = generate_stamp(self.stamp_material(), stamp_cost=self.target_value,
+                                                        expand_rounds=0, size=RNS.Identity.STAMPLENGTH)
+                    if stamp == None:
+                        RNS.log(f"Destination stamp generation for {RNS.prettyhexrep(self.hash)} failed or was aborted", RNS.LOG_DEBUG)
+                        return False
+
+                    self.stamp       = stamp
+                    self.stamp_value = stamp_value
+                    store_destination_stamp(self.hash, stamp, stamp_value)
+                    RNS.log(f"Generated and persisted stamp with value {self.stamp_value} for {self}", RNS.LOG_DEBUG)
+
+        if self.stamp == None: return False
+        else:                  return True
+
     def announce(self, app_data=None, path_response=False, attached_interface=None, tag=None, send=True):
         """
         Creates an announce packet for this destination and broadcasts it on all
@@ -249,12 +291,20 @@ class Destination:
         :param app_data: *bytes* containing the app_data.
         :param path_response: Internal flag used by :ref:`RNS.Transport<api-transport>`. Ignore.
         """
-        if self.type != Destination.SINGLE:
-            raise TypeError("Only SINGLE destination types can be announced")
+        if self.type != Destination.SINGLE:  raise TypeError("Only SINGLE destination types can be announced")
+        if self.direction != Destination.IN: raise TypeError("Only IN destination types can be announced")
 
-        if self.direction != Destination.IN:
-            raise TypeError("Only IN destination types can be announced")
-        
+        if send and RNS.Transport.STAMP_DESTINATIONS and self.stamp == None:
+            # If no stamp is available, queue for background generation
+            # and announce emission once ready.
+            RNS.Transport.enqueue_stamped_announce(self, app_data=app_data, path_response=path_response,
+                                                   attached_interface=attached_interface, tag=tag)
+        else:
+            # Otherwise, dispatch immediately.
+            return self._announce(app_data=app_data, path_response=path_response,
+                                  attached_interface=attached_interface, tag=tag, send=send)
+
+    def _announce(self, app_data=None, path_response=False, attached_interface=None, tag=None, send=True):
         ratchet = b""
         now = time.time()
         stale_responses = []
@@ -294,6 +344,17 @@ class Destination:
                     returned_app_data = self.default_app_data()
                     if isinstance(returned_app_data, bytes):
                         app_data = returned_app_data
+
+            if RNS.Transport.STAMP_DESTINATIONS:
+                if not self._await_stamp():
+                    RNS.log(f"Could not generate destination stamp for {RNS.prettyhexrep(self.hash)}, announce emission cancelled", RNS.LOG_WARNING)
+                    return None
+
+                cost_bytes  = cost_to_bytes(self.get_link_cost())
+                ext_payload = bytes([RNS.Identity.EXTPAYLOADMARKER, self.get_ext_flags()])+self.stamp+bytes([cost_bytes[1], cost_bytes[0]])
+
+                if app_data == None: app_data = ext_payload
+                else:                app_data = app_data+ext_payload
             
             signed_data = self.hash+self.identity.get_public_key()+self.name_hash+random_hash+ratchet
             if app_data != None: signed_data += app_data
@@ -316,6 +377,44 @@ class Destination:
         
         if send: announce_packet.send()
         else:    return announce_packet
+
+    def stamp_material(self):
+        return self.hash+self.identity.get_public_key()+self.name_hash
+
+    def get_ext_flags(self):
+        return 0x00
+
+    @property
+    def target_value(self):
+        return min(RNS.Transport.STAMP_COST_CAP, max(float(self._target_value), RNS.Transport.DESTINATION_VALUE))
+
+    def set_value(self, value):
+        """
+        Sets the target stamp value for this destination.
+
+        :param value: The target value as a *float*.
+        """
+        self._target_value = min(RNS.Transport.STAMP_COST_CAP, max(float(value), RNS.Transport.DESTINATION_VALUE))
+
+    def set_link_cost(self, cost):
+        """
+        Sets the required link establishment stamp cost for this destination. Set to 0 to disable.
+
+        :param cost: The required cost as a *float*.
+        """
+        self._link_cost = max(0, min(float(cost), RNS.Transport.LINK_COST_CAP))
+
+    def get_link_cost(self):
+        """
+        Returns the link request stamp cost to be announced for this
+        destination, as a float. If no destination-specific cost has
+        been set, the default link request cost is returned.
+
+        :returns: The announced link request cost as a *float*.
+        """
+        cost = self._link_cost
+        if cost == None: cost = RNS.Transport.LR_COST
+        return max(0.0, min(float(cost), RNS.Transport.STAMP_COST_CAP))
 
     def accepts_links(self, accepts = None):
         """
@@ -431,8 +530,7 @@ class Destination:
     def incoming_link_request(self, data, packet):
         if self.accept_link_requests:
             link = RNS.Link.validate_request(self, data, packet)
-            if link != None:
-                self.links.append(link)
+            if link != None: self.links.append(link)
 
     def _reload_ratchets(self, ratchets_path):
         if os.path.isfile(ratchets_path):
