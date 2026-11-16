@@ -221,6 +221,7 @@ class PBDevice():
         if self.ep_in is None or self.ep_out is None:
             raise RuntimeError("failed to find PICOBOOT endpoints, is device actually in bootrom?")
         self.fin = weakref.finalize(self, self.close)
+        self._reset_interface()
         self._devtype =  self._deduce_device_type()
 
     def get_device_type(self) -> DeviceType:
@@ -271,7 +272,7 @@ class PBDevice():
         if r != 0:
             raise RuntimeError("failed to reset interface")
 
-    def _do_command(self, cmd: PBCommand, txdata: bytes = None) -> bytes:
+    def _do_command(self, cmd: PBCommand, txdata: bytes = None) -> list:
         xfer_len = cmd.xfer_len
         b_cmd = cmd()
         readdata = bytes()
