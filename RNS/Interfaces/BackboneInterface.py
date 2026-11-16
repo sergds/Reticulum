@@ -155,6 +155,7 @@ class BackboneInterface(Interface):
         self.mode = RNS.Interfaces.Interface.Interface.MODE_FULL
         self.spawned_interfaces = []
         self.supports_discovery = True
+        self.tunnels_allowed = True
         self.client_limit = client_limit or self.CLIENT_LIMIT
         self.block_fast_flapping = flap_block
         self.fast_flap_threshold = flap_threshold
@@ -756,6 +757,7 @@ class BackboneInterface(Interface):
             spawned_interface.announce_rate_penalty = self.announce_rate_penalty
             spawned_interface.mode = self.mode
             spawned_interface.gravity = self.gravity
+            spawned_interface.hop_limiter = self.hop_limiter
             spawned_interface.recursive_prs = self.recursive_prs
             spawned_interface.announces_from_internal = self.announces_from_internal
             spawned_interface.announces_to_internal = self.announces_to_internal
@@ -883,6 +885,7 @@ class BackboneClientInterface(Interface):
         self.OUT              = False
         self.socket           = None
         self.parent_interface = None
+        self.tunnels_allowed  = True
         self.name             = name
         self.initiator        = False
         self.reconnecting     = False
@@ -936,8 +939,6 @@ class BackboneClientInterface(Interface):
             thread = threading.Thread(target=self.reconnect)
             thread.daemon = True
             thread.start()
-        else:
-            self.wants_tunnel = True
 
     def set_timeouts_linux(self):
         self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_USER_TIMEOUT, int(BackboneClientInterface.TCP_USER_TIMEOUT * 1000))
@@ -965,6 +966,15 @@ class BackboneClientInterface(Interface):
 
                     self.socket = None
 
+    def early_synthesis(self, packet):
+        if not self.detached:
+            if not packet.packed: packet.pack()
+            frame = HDLC.frame(packet.raw)
+            if not self.transmit_buffer.append(frame, self.tx_hwm):
+                raise IOError("Transmit buffer overflow at early tunnel synthesis")
+
+            BackboneInterface.tx_ready(self)
+
     def connect(self, initial=False):
         try:
             if initial:
@@ -988,7 +998,11 @@ class BackboneClientInterface(Interface):
             # TODO: Check missing setblocking(0)
             self.socket.settimeout(None)
 
+            self.wants_tunnel = True
+            self.remote_transport = None
+            self.synthesis_received = False
             BackboneInterface.add_client_socket(self.socket, self)
+            RNS.Transport.synthesize_tunnel(self)
             self.online  = True
 
             if initial:
@@ -1035,7 +1049,6 @@ class BackboneClientInterface(Interface):
                     RNS.log("Reconnected socket for "+str(self)+".", RNS.LOG_INFO)
 
                 self.reconnecting = False
-                RNS.Transport.synthesize_tunnel(self)
 
         else:
             RNS.log("Attempt to reconnect on a non-initiator TCP interface. This should not happen.", RNS.LOG_ERROR)
@@ -1043,10 +1056,6 @@ class BackboneClientInterface(Interface):
 
     def process_incoming(self, data):
         if self.online and not self.detached:
-            self.rxb += len(data)
-            if hasattr(self, "parent_interface") and self.parent_interface != None:
-                self.parent_interface.rxb += len(data)
-
             self.dp_ingress_packets += 1
             self.owner.inbound(data, self)
 

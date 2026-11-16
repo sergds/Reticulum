@@ -39,7 +39,6 @@ class Interface:
     OUT = False
     FWD = False
     RPT = False
-    name = None
 
     # Interface mode definitions
     MODE_FULL           = 0x01
@@ -96,12 +95,16 @@ class Interface:
     DEFAULT_IFAC_SIZE = 16
 
     def __init__(self):
+        self.name     = None
         self.rxb      = 0
         self.txb      = 0
+        self.frxb     = 0
+        self.ftxb     = 0
         self.arxb     = 0
         self.atxb     = 0
         self.arxc     = 0
         self.atxc     = 0
+        self.afrxc    = 0
         self.prxb     = 0
         self.ptxb     = 0
         self.prxc     = 0
@@ -126,9 +129,22 @@ class Interface:
         self.parent_interface         = None
         self.spawned_interfaces       = None
         self.tunnel_id                = None
+        self.local_tunnel_id          = None
+        self.tunnels_allowed          = False
+        self.synthesis_received       = False
+        self.synthesis_emitted        = False
+        self.wants_tunnel             = False
+        self.remote_transport         = None
         self.ingress_control          = True
+        self.hop_limiter              = None
         self.phy_keepalive            = False
         self.shared_medium            = False
+
+        self.remote_impl              = None
+        self.remote_vers              = None
+        self.remote_dst_cost          = None
+        self.remote_pr_cost           = None
+        self.remote_is_tn             = None
         
         self.ic_burst_active          = False
         self.ic_burst_activated       = 0
@@ -275,11 +291,14 @@ class Interface:
 
     def hold_announce(self, announce_packet):
         if announce_packet.hops >= RNS.Transport.PATHFINDER_M-1:
-            return
+            return self.filtered_announce()
         elif announce_packet.destination_hash in self.held_announces:
             self.held_announces[announce_packet.destination_hash] = announce_packet
+            return self.filtered_announce()
         elif not len(self.held_announces) >= self.ic_max_held_announces:
             self.held_announces[announce_packet.destination_hash] = announce_packet
+            return True
+        else: return self.filtered_announce()
 
     def process_held_announces(self):
         try:
@@ -289,18 +308,32 @@ class Interface:
                 if ia_freq < freq_threshold:
                     selected_announce_packet = None
                     min_hops = RNS.Transport.PATHFINDER_M
-                    for destination_hash in self.held_announces:
-                        announce_packet = self.held_announces[destination_hash]
+                    cull_entries = []
+                    for destination_hash in self.held_announces.copy():
+                        announce_packet = self.held_announces.get(destination_hash)
+                        if not announce_packet: continue
+
+                        # If we can determine that a held announce has become
+                        # useless for any potential path table updates, we'll
+                        # remove it immediately instead of waiting for it to
+                        # eventually get released, freeing up other held queue
+                        # slots for potentially useful new announces.
+                        path_entry = RNS.Transport.path_table.get(destination_hash)
+                        if path_entry and not RNS.Transport.announce_prefilter(announce_packet, path_entry):
+                            cull_entries.append(destination_hash)
+                            continue
+
                         if announce_packet.hops < min_hops:
                             min_hops = announce_packet.hops
                             selected_announce_packet = announce_packet
 
+                    for destination_hash in cull_entries: self.held_announces.pop(destination_hash, None)
+
                     if selected_announce_packet != None:
                         RNS.log("Releasing held announce packet "+str(selected_announce_packet)+" from "+str(self), RNS.LOG_EXTREME)
                         self.ic_held_release = time.time() + self.ic_held_release_interval
-                        self.held_announces.pop(selected_announce_packet.destination_hash)
-                        def release(): RNS.Transport.inbound(selected_announce_packet.raw, selected_announce_packet.receiving_interface, tc=RNS.Transport.TC_INGRESS_LIMITED, ifac_handled=True)
-                        threading.Thread(target=release, daemon=True).start()
+                        self.held_announces.pop(selected_announce_packet.destination_hash, None)
+                        RNS.Transport.inbound(selected_announce_packet.raw, selected_announce_packet.receiving_interface, tc=RNS.Transport.TC_INGRESS_LIMITED, ifac_handled=True)
         
         except Exception as e:
             RNS.log("An error occurred while processing held announces for "+str(self), RNS.LOG_ERROR)
@@ -309,25 +342,31 @@ class Interface:
     def received_announce(self, size=0, from_spawned=False):
         self.arxc += 1; self.arxb += size
         self.ia_freq_deque.append(time.time())
-        if hasattr(self, "parent_interface") and self.parent_interface != None:
+        if self.parent_interface != None:
             self.parent_interface.received_announce(size=size, from_spawned=True)
 
     def sent_announce(self, size=0, from_spawned=False):
         self.atxc += 1; self.atxb += size
         self.oa_freq_deque.append(time.time())
-        if hasattr(self, "parent_interface") and self.parent_interface != None:
+        if self.parent_interface != None:
             self.parent_interface.sent_announce(size=size, from_spawned=True)
+
+    def filtered_announce(self, size=0, from_spawned=False):
+        self.afrxc += 1
+        RNS.Transport.filtered_arxc += 1
+        if self.parent_interface != None: self.parent_interface.afrxc += 1
+        return None
 
     def received_path_request(self, size=0, from_spawned=False):
         self.prxc += 1; self.prxb += size
         self.ip_freq_deque.append(time.time())
-        if hasattr(self, "parent_interface") and self.parent_interface != None:
+        if self.parent_interface != None:
             self.parent_interface.received_path_request(size=size, from_spawned=True)
 
     def sent_path_request(self, size=0, from_spawned=False):
         self.ptxc += 1; self.ptxb += size
         self.op_freq_deque.append(time.time())
-        if hasattr(self, "parent_interface") and self.parent_interface != None:
+        if self.parent_interface != None:
             self.parent_interface.sent_path_request(size=size, from_spawned=True)
 
     def protocol_violation(self, description=None, level=None):
