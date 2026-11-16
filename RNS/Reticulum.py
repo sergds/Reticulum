@@ -53,6 +53,7 @@ import configparser
 import multiprocessing.connection
 import importlib.util
 import threading
+import weakref
 import signal
 import atexit
 import struct
@@ -175,18 +176,35 @@ class Reticulum:
     gracious_persist_lock = Lock()
 
     __instance       = None
+    __pid            = os.getpid()
 
     __interface_detach_ran = False
     __exit_handler_ran = False
+    RPC_EXIT_TIMEOUT = 0.5
     @staticmethod
     def exit_handler():
         # This exit handler is called whenever Reticulum is asked to
         # shut down, and will in turn call exit handlers in other
         # classes, saving necessary information to disk and carrying
         # out cleanup operations.
+        if not os.getpid() == Reticulum.__pid:
+            Reticulum.__exit_handler_ran = True
+
         if not Reticulum.__exit_handler_ran:
             Reticulum.__exit_handler_ran = True
-            Reticulum.__instance.unwants_all_destination_types()
+
+            for conn in list(Reticulum.__open_rpc_conns):
+                try: conn.close()
+                except Exception: pass
+
+            try:
+                if Reticulum.__instance.is_connected_to_shared_instance:
+                    deregister_job = threading.Thread(target=Reticulum.__instance.unwants_all_destination_types, daemon=True)
+                    deregister_job.start()
+                    deregister_job.join(timeout=Reticulum.RPC_EXIT_TIMEOUT)
+                    if deregister_job.is_alive(): RNS.log("Shared instance RPC timed out during exit", RNS.LOG_DEBUG)
+            except Exception as e: RNS.log(f"Could not deregister destination types at exit: {e}", RNS.LOG_DEBUG)
+
             if not Reticulum.__interface_detach_ran: RNS.Transport.detach_interfaces()
             RNS.Transport.exit_handler()
             RNS.Identity.exit_handler()
@@ -196,13 +214,13 @@ class Reticulum:
 
     @staticmethod
     def sigint_handler(signal, frame):
-        RNS.Transport.detach_interfaces()
+        if os.getpid() == Reticulum.__pid: RNS.Transport.detach_interfaces()
         Reticulum.__interface_detach_ran = True
         RNS.exit()
 
     @staticmethod
     def sigterm_handler(signal, frame):
-        RNS.Transport.detach_interfaces()
+        if os.getpid() == Reticulum.__pid: RNS.Transport.detach_interfaces()
         Reticulum.__interface_detach_ran = True
         RNS.exit()
 
@@ -212,6 +230,13 @@ class Reticulum:
         Returns the currently running Reticulum instance.
         """
         return Reticulum.__instance
+
+    @staticmethod
+    def get_instance_pid():
+        """
+        Returns the main process ID of the currently running Reticulum instance.
+        """
+        return Reticulum.__pid
 
     def __init__(self,configdir=None, loglevel=None, logdest=None, verbosity=None,
                  require_shared_instance=False, shared_instance_type=None,
@@ -899,16 +924,25 @@ class Reticulum:
         except Exception as e: RNS.log(f"Error while detaching interface \"{name}\": {e}", RNS.LOG_ERROR)
         return False
 
-    def _detach_interface(self, name, internal_forced=False):
+    def _detach_interface(self, name, internal_forced=False, interface_instance=None):
         if not internal_forced and not Reticulum.__interface_management_enabled: return False
         try:
-            interfaces = { iface.name: iface for iface in RNS.Transport.interfaces }
-            if not name in interfaces:
-                RNS.log(f"Attempt to detach non-existing interface \"{name}\"", RNS.LOG_WARNING)
+            if interface_instance: interface = interface_instance
+            else:
+                interfaces = { iface.name: iface for iface in RNS.Transport.interfaces }
+                interface  = interfaces.get(name, None)
+                if not interface:
+                    try: tunnel_id = bytes.fromhex(name)
+                    except: return None
+                    tunnel_ids       = { iface.tunnel_id:       iface for iface in RNS.Transport.interfaces if iface.tunnel_id }
+                    local_tunnel_ids = { iface.local_tunnel_id: iface for iface in RNS.Transport.interfaces if iface.local_tunnel_id }
+                    interface        = tunnel_ids.get(tunnel_id, None) or local_tunnel_ids.get(tunnel_id, None)
+
+            if not interface:
+                RNS.log(f"Attempt to detach non-existing interface \"{name or interface}\"", RNS.LOG_WARNING)
                 return None
 
             else:
-                interface = interfaces[name]
                 if isinstance(interface, I2PInterface.I2PInterface):           return False
                 if isinstance(interface, LocalInterface.LocalClientInterface): return False
                 if isinstance(interface, LocalInterface.LocalServerInterface): return False
@@ -921,8 +955,12 @@ class Reticulum:
                         RNS.Transport.remove_interface(s)
 
                 interface.detach()
+                if interface.parent_interface and interface.parent_interface.spawned_interfaces:
+                    if interface in interface.parent_interface.spawned_interfaces:
+                        interface.teardown()
+
                 RNS.Transport.remove_interface(interface)
-                RNS.log(f"Interface \"{name}\" was detached", RNS.LOG_NOTICE)
+                RNS.log(f"Interface {interface} was detached", RNS.LOG_NOTICE)
                 return True
 
         except Exception as e: RNS.log(f"Error while detaching interface \"{name}\": {e}", RNS.LOG_ERROR); RNS.trace_exception(e)
@@ -983,6 +1021,11 @@ class Reticulum:
 
         gravity = self._default_gravity()
         if "gravity" in c: gravity = c.as_int("gravity")
+
+        hop_limiter = None
+        if "hop_limiter" in c:
+            v = c.as_int("hop_limiter")
+            hop_limiter = max(0, min(v, RNS.Transport.PATHFINDER_M))
 
         destination_cost = None
         if "destination_cost" in c:
@@ -1144,11 +1187,12 @@ class Reticulum:
                     if "outgoing" in c and c.as_bool("outgoing") == False: interface.OUT = False
                     else:                                                  interface.OUT = True
 
-                    interface.mode = interface_mode
-                    interface.gravity = gravity
-                    interface.announce_cap = announce_cap
-                    interface.bootstrap_only = bootstrap_only
-                    if configured_bitrate: interface.bitrate = configured_bitrate
+                    interface.mode                            = interface_mode
+                    interface.gravity                         = gravity
+                    interface.hop_limiter                     = hop_limiter
+                    interface.announce_cap                    = announce_cap
+                    interface.bootstrap_only                  = bootstrap_only
+                    if configured_bitrate: interface.bitrate  = configured_bitrate
                     interface.optimise_mtu()
                     
                     if ifac_size != None: interface.ifac_size = ifac_size
@@ -1567,7 +1611,11 @@ class Reticulum:
             except Exception as e: RNS.log("An error ocurred while handling RPC call from local client: "+str(e), RNS.LOG_ERROR)
             finally: conn.close() if conn else None
 
-    def get_rpc_client(self): return multiprocessing.connection.Client(self.rpc_addr, family=self.rpc_type, authkey=self.rpc_key)
+    __open_rpc_conns = weakref.WeakSet()
+    def get_rpc_client(self):
+        conn = multiprocessing.connection.Client(self.rpc_addr, family=self.rpc_type, authkey=self.rpc_key)
+        Reticulum.__open_rpc_conns.add(conn)
+        return conn
 
     def _used_destination_data(self, destination_hash):
         if self.is_connected_to_shared_instance:
@@ -1727,6 +1775,16 @@ class Reticulum:
                     else:                                  ifstats["txs"] = 0
                 else:                                      ifstats["txs"] = 0
 
+                if hasattr(interface, "current_frx_speed"):
+                    if interface.current_frx_speed != None: ifstats["frxs"] = interface.current_frx_speed
+                    else:                                   ifstats["frxs"] = 0
+                else:                                       ifstats["frxs"] = 0
+
+                if hasattr(interface, "current_ftx_speed"):
+                    if interface.current_ftx_speed != None: ifstats["ftxs"] = interface.current_ftx_speed
+                    else:                                   ifstats["ftxs"] = 0
+                else:                                       ifstats["ftxs"] = 0
+
                 if hasattr(interface, "current_arx_speed"):
                     if interface.current_arx_speed != None: ifstats["arxs"] = interface.current_arx_speed
                     else:                                   ifstats["arxs"] = 0
@@ -1780,10 +1838,13 @@ class Reticulum:
                 ifstats["mtu"]                         = interface.HW_MTU
                 ifstats["rxb"]                         = interface.rxb
                 ifstats["txb"]                         = interface.txb
+                ifstats["frxb"]                        = interface.frxb
+                ifstats["ftxb"]                        = interface.ftxb
                 ifstats["arxb"]                        = interface.arxb
                 ifstats["atxb"]                        = interface.atxb
                 ifstats["arxc"]                        = interface.arxc
                 ifstats["atxc"]                        = interface.atxc
+                ifstats["afrxc"]                       = interface.afrxc
                 ifstats["prxb"]                        = interface.prxb
                 ifstats["ptxb"]                        = interface.ptxb
                 ifstats["prxc"]                        = interface.prxc
@@ -1813,6 +1874,21 @@ class Reticulum:
                 ifstats["protocol_violations"]         = interface.protocol_violations
                 ifstats["ifac_violations"]             = interface.ifac_violations
                 ifstats["packet_filter_hits"]          = interface.packet_filter_hits
+                ifstats["tunnel_id"]                   = interface.tunnel_id or interface.local_tunnel_id
+                ifstats["remote_transport_id"]         = interface.remote_transport.hash if interface.remote_transport else None
+
+                if interface.shared_medium:
+                    ifstats["rem_impl"]     = None
+                    ifstats["rem_vers"]     = None
+                    ifstats["rem_is_tn"]    = None
+                    ifstats["rem_dst_cost"] = None
+                    ifstats["rem_pr_cost"]  = None
+                else:
+                    ifstats["rem_impl"]     = interface.remote_impl
+                    ifstats["rem_vers"]     = interface.remote_vers
+                    ifstats["rem_is_tn"]    = interface.remote_is_tn
+                    ifstats["rem_dst_cost"] = interface.remote_dst_cost
+                    ifstats["rem_pr_cost"]  = interface.remote_pr_cost
 
                 interfaces.append(ifstats)
 
@@ -1830,6 +1906,10 @@ class Reticulum:
             stats["txb"]         = RNS.Transport.traffic_txb
             stats["rxs"]         = RNS.Transport.speed_rx
             stats["txs"]         = RNS.Transport.speed_tx
+            stats["frxb"]        = RNS.Transport.filtered_rxb
+            stats["ftxb"]        = RNS.Transport.filtered_txb
+            stats["frxs"]        = RNS.Transport.filtered_speed_rx
+            stats["ftxs"]        = RNS.Transport.filtered_speed_tx
             stats["arxb"]        = RNS.Transport.announce_rxb
             stats["atxb"]        = RNS.Transport.announce_txb
             stats["arxs"]        = RNS.Transport.announce_speed_rx

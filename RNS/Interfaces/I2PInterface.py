@@ -353,6 +353,7 @@ class I2PInterfacePeer(Interface):
         self.online           = False
         self.detached         = False
         self.kiss_framing     = False
+        self.tunnels_allowed  = True
         self.i2p_tunneled     = True
         self.i2p_dest         = None
         self.i2p_tunnel_ready = False
@@ -425,8 +426,6 @@ class I2PInterfacePeer(Interface):
                 while self.awaiting_i2p_tunnel: time.sleep(0.25)
                 time.sleep(2)
                 
-                if not self.kiss_framing: self.wants_tunnel = True
-
                 if not self.connect(initial=True):
                     thread = threading.Thread(target=self.reconnect)
                     thread.daemon = True
@@ -479,10 +478,29 @@ class I2PInterfacePeer(Interface):
 
                     self.socket = None
 
+    def early_synthesis(self, packet):
+        if not self.detached:
+            if not packet.packed: packet.pack()
+
+            if self.kiss_framing: frame = bytes([KISS.FEND])+bytes([KISS.CMD_DATA])+KISS.escape(packet.raw)+bytes([KISS.FEND])
+            else:                 frame = bytes([HDLC.FLAG])+HDLC.escape(packet.raw)+bytes([HDLC.FLAG])
+
+            self.socket.sendall(frame)
+            self.txb += len(frame)
+            self.last_write = time.time()
+            if hasattr(self, "parent_interface") and self.parent_interface != None and self.parent_count: self.parent_interface.txb += len(frame)
+
     def connect(self, initial=False):
         try:
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.socket.connect((self.target_ip, self.target_port))
+
+            if not self.kiss_framing:
+                self.wants_tunnel = True
+                self.remote_transport = None
+                self.synthesis_received = False
+                RNS.Transport.synthesize_tunnel(self)
+
             self.online  = True
         
         except Exception as e:
@@ -499,8 +517,6 @@ class I2PInterfacePeer(Interface):
         self.online  = True
         self.writing = False
         self.never_connected = False
-
-        if not self.kiss_framing and self.wants_tunnel: RNS.Transport.synthesize_tunnel(self)
 
         return True
 
@@ -530,7 +546,6 @@ class I2PInterfacePeer(Interface):
                 thread = threading.Thread(target=self.read_loop)
                 thread.daemon = True
                 thread.start()
-                if not self.kiss_framing: RNS.Transport.synthesize_tunnel(self)
 
         else:
             RNS.log("Attempt to reconnect on a non-initiator I2P interface. This should not happen.", RNS.LOG_ERROR)
@@ -538,9 +553,6 @@ class I2PInterfacePeer(Interface):
 
     def process_incoming(self, data):
         if not data: return
-        self.rxb += len(data)
-        if hasattr(self, "parent_interface") and self.parent_interface != None and self.parent_count:
-            self.parent_interface.rxb += len(data)
         self.owner.inbound(data, self)
 
     def process_outgoing(self, data):
@@ -741,6 +753,7 @@ class I2PInterface(Interface):
         self.owner = owner
         self.connectable = connectable
         self.i2p_tunneled = True
+        self.tunnels_allowed = True
         self.peers = peers
         self.mode = RNS.Interfaces.Interface.Interface.MODE_FULL
 
@@ -909,6 +922,7 @@ class I2PInterface(Interface):
         spawned_interface.mode = self.mode
         spawned_interface.recursive_prs = self.recursive_prs
         spawned_interface.gravity = self.gravity
+        spawned_interface.hop_limiter = self.hop_limiter
         spawned_interface.HW_MTU = self.HW_MTU
         RNS.log("Spawned new I2PInterface Peer: "+str(spawned_interface), RNS.LOG_VERBOSE)
         RNS.Transport.add_interface(spawned_interface)

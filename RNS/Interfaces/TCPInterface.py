@@ -126,6 +126,7 @@ class TCPClientInterface(Interface):
         self.writing          = False
         self.online           = False
         self.detached         = False
+        self.tunnels_allowed  = True
         self.kiss_framing     = kiss_framing
         self.i2p_tunneled     = i2p_tunneled
         self.mode             = RNS.Interfaces.Interface.Interface.MODE_FULL
@@ -175,8 +176,6 @@ class TCPClientInterface(Interface):
             thread = threading.Thread(target=self.read_loop)
             thread.daemon = True
             thread.start()
-            if not self.kiss_framing:
-                self.wants_tunnel = True
 
     def set_timeouts_linux(self):
         if not self.i2p_tunneled:
@@ -228,6 +227,18 @@ class TCPClientInterface(Interface):
 
                     self.socket = None
 
+    def early_synthesis(self, packet):
+        if not self.detached:
+            if not packet.packed: packet.pack()
+
+            if self.kiss_framing: frame = bytes([KISS.FEND])+bytes([KISS.CMD_DATA])+KISS.escape(packet.raw)+bytes([KISS.FEND])
+            else:                 frame = bytes([HDLC.FLAG])+HDLC.escape(packet.raw)+bytes([HDLC.FLAG])
+
+            self.socket.sendall(frame)
+            self.txb += len(frame)
+            if hasattr(self, "parent_interface") and self.parent_interface != None:
+                self.parent_interface.txb += len(frame)
+
     def connect(self, initial=False):
         try:
             if initial:
@@ -242,6 +253,13 @@ class TCPClientInterface(Interface):
             self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             self.socket.connect(target_address)
             self.socket.settimeout(None)
+
+            if not self.kiss_framing:
+                self.wants_tunnel = True
+                self.remote_transport = None
+                self.synthesis_received = False
+                RNS.Transport.synthesize_tunnel(self)
+
             self.online  = True
 
             if initial:
@@ -282,9 +300,7 @@ class TCPClientInterface(Interface):
                         self.teardown()
                         break
 
-                    try:
-                        self.connect()
-
+                    try: self.connect()
                     except Exception as e:
                         RNS.log("Connection attempt for "+str(self)+" failed: "+str(e), RNS.LOG_DEBUG)
 
@@ -295,8 +311,6 @@ class TCPClientInterface(Interface):
                 thread = threading.Thread(target=self.read_loop)
                 thread.daemon = True
                 thread.start()
-                if not self.kiss_framing:
-                    RNS.Transport.synthesize_tunnel(self)
 
         else:
             RNS.log("Attempt to reconnect on a non-initiator TCP interface. This should not happen.", RNS.LOG_ERROR)
@@ -305,10 +319,6 @@ class TCPClientInterface(Interface):
     def process_incoming(self, data):
         if not data: return
         if self.online and not self.detached:
-            self.rxb += len(data)
-            if hasattr(self, "parent_interface") and self.parent_interface != None:
-                self.parent_interface.rxb += len(data)
-                        
             self.owner.inbound(data, self)
 
     def process_outgoing(self, data):
@@ -533,6 +543,7 @@ class TCPServerInterface(Interface):
         self.OUT = False
         self.name = name
         self.detached = False
+        self.tunnels_allowed = True
 
         self.i2p_tunneled = i2p_tunneled
         self.mode         = RNS.Interfaces.Interface.Interface.MODE_FULL
@@ -639,6 +650,7 @@ class TCPServerInterface(Interface):
         spawned_interface.announce_rate_penalty = self.announce_rate_penalty
         spawned_interface.mode = self.mode
         spawned_interface.gravity = self.gravity
+        spawned_interface.hop_limiter = self.hop_limiter
         spawned_interface.recursive_prs = self.recursive_prs
         spawned_interface.announces_from_internal = self.announces_from_internal
         spawned_interface.announces_to_internal = self.announces_to_internal
