@@ -32,7 +32,7 @@ if pure_python:
     long_description = long_description.replace("</p>", "</p>"+pure_notice)
 else:
     pkg_name = "rns"
-    requirements = ['cryptography>=3.4.7', 'pyserial>=3.5']
+    requirements = ['cryptography>=3.4.7', 'pyserial>=3.5', 'pyusb>=1.3.1']
 
 excluded_modules = ["tests.*", "tests"]
 

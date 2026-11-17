@@ -1,5 +1,6 @@
-import picoboot
+from . import picoboot
 import struct
+import weakref
 
 FLASH_BASE = 0x10000000
 
@@ -47,6 +48,7 @@ class FlashContext():
 class PicoFlasher():
     def __init__(self, bus: int, address: int):
         self.pbdev = picoboot.PBDevice(bus, address)
+        self.fin = weakref.finalize(self, self.close)
 
     # almost the same algorithm as here: https://github.com/raspberrypi/picotool/blob/2041936441b48a3cc53ae3da9e805229fe8f4e18/main.cpp#L3176
     def aprox_flash_size(self) -> int:
@@ -70,6 +72,10 @@ class PicoFlasher():
             self.pbdev.reboot(0, 0, 1000)
         else:
             self.pbdev.reboot2(0x0004, 1000, FLASH_BASE, 0) # TODO: Specify actual start address, perhaps
+
+    def close(self):
+        del self.pbdev
+        self.pbdev = None
 
     def read_flash(self, start: int = FLASH_BASE, end: int = -1) -> bytes:
         self.pbdev.exit_xip()

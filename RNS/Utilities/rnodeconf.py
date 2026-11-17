@@ -1783,8 +1783,116 @@ def main():
 
                 print("\nRNode firmware extraction failed")
                 graceful_exit(180)
+            elif rnode.platform == ROM.PLATFORM_RP2XXX:
+                try:
+                    if util.find_spec("usb") is None:
+                        raise ImportError("usb module could not be found")
+                except ImportError:
+                    print("RP2040/RP235X flashing requires pyusb module")
+                    exit(1)
+                import RNS.vendor.picoflasher as picoflasher
+                if rnode.provisioned:
+                    if not rnode.signature_valid:
+                        print("\nThe device signature in this RNode is unknown and cannot be verified. It is still")
+                        print("possible to extract the firmware from it, but you should make absolutely sure that")
+                        print("it comes from a trusted source. It is possible that someone could have modified the")
+                        print("firmware. If that is the case, these modifications will propagate to any new RNodes")
+                        print("descendent from this one!")
+                        print("\nHit enter if you are sure you want to continue.")
+                        input()
+                    if rnode.firmware_hash != None:
+                        extracted_hash = rnode.firmware_hash
+                        extracted_version = rnode.version
+                        v_str = str(extracted_version)+" "+RNS.hexrep(extracted_hash, delimit=False)
+                        print("\nFound RNode Firmvare v"+v_str)
+
+                        print("\nReady to extract firmware images from the RNode")
+                        print("Press enter to start the extraction process")
+                        input()
+                        rnode.reset_to_bootloader()
+                        rnode.serial.close()
+                        dev = None
+                        timeout = 4.0
+                        while dev is None:
+                            if timeout <= 0.0:
+                                print("Timed out waiting for picoboot device to appear.")
+                                exit(182)
+                            time.sleep(0.1)
+                            timeout -= 0.1
+                            devs = picoflasher.picoboot.PBDevice.enumerate_devices()
+                            for d in devs:
+                                if d.serial_number == port_serialno:
+                                    dev = d
+                        flasher = picoflasher.PicoFlasher(dev.bus, dev.address)
+
+                        PICOBIN_BLOCK_MARKER_END = 0xab123579
+
+                        # should trim the binary up to firmware image end, leaving rest of flash like FS/EEPROM out.
+                        def trim_image(Bimg: bytearray) -> bytearray:
+                            binlen = len(Bimg)
+                            pos = binlen
+                            end = binlen
+                            while pos > 0:
+                                pos -= 4096
+                                if pos < 0:
+                                    pos = 0
+                                if len(set(Bimg[pos:pos+4096])) == 1:
+                                    continue
+                                pagepos = pos+4096
+                                while pagepos > pos:
+                                    pagepos -= 1
+                                    v = struct.unpack("<I", Bimg[pagepos:pagepos+4])
+                                    if v[0] == PICOBIN_BLOCK_MARKER_END:
+                                        break
+                                if pagepos > pos:
+                                    end = pagepos+4
+                                    break
+                            return Bimg[:end]
+
+                        def find_btstack_tlv_offset(Bimg: bytearray) -> int | None:
+                            aligned_lenght = math.ceil(len(Bimg) / 4096) * 4096 if len(Bimg) / 4096 != 0 else 0
+                            aligned_bimg = Bimg + bytes([0] * (aligned_lenght - len(Bimg)))
+                            pos = len(aligned_bimg)
+                            while pos > 0:
+                                pos -= 4096
+                                if aligned_bimg[pos:pos+7] == b"BTstack":
+                                    return pos
+                            return None
+
+                        hash_f = open(EXT_DIR+"/extracted_rnode_firmware.version", "wb")
+                        hash_f.write(v_str.encode("utf-8"))
+                        hash_f.close()
+
+                        try:
+                            with open(EXT_DIR+"/extracted_rnode_firmware.bin", "wb") as fw_file:
+                                full_binary = bytearray()
+                                print("Reading whole flash...")
+                                for block in flasher.read_flash():
+                                    full_binary += block
+                                print("Postprocess: image trimming")
+                                trimmed_image = trim_image(full_binary)
+                                bttlv_offs = find_btstack_tlv_offset(trimmed_image)
+                                if bttlv_offs is not None:
+                                    print("Postprocess: extract btstack tlv sectors")
+                                    bttlv = trimmed_image[bttlv_offs:bttlv_offs+8192]
+                                    with open(EXT_DIR+"/extracted_rnode_firmware.bt_tlv.bin", "wb") as bttlv_file:
+                                        bttlv_file.write(bttlv)
+                                    trimmed_image[bttlv_offs:bttlv_offs+8192] = bytes(8192)
+                                fw_file.write(trimmed_image)
+
+                            flasher.reboot_to_flash()
+                            del flasher
+                        except RuntimeError as e:
+                            print(f"Extracting firmware failed: {e.__str__()}")
+                            exit(182)
+                        print("\nFirmware successfully extracted!")
+                        print("\nYou can now use this firmware to update or autoinstall other RNodes")
+
+                        exit()
+                    else:
+                        print("Could not read firmware information from device")
             else:
-                print("\nFirmware extraction is currently only supported on ESP32-based RNodes.")
+                print("\nFirmware extraction is currently only supported on ESP32-based and RP2040/RP2350-based RNodes.")
                 graceful_exit(170)
 
         if args.autoinstall:
