@@ -1819,7 +1819,10 @@ def main():
                                     dev = d
                         flasher = picoflasher.PicoFlasher(dev.bus, dev.address)
 
-                        PICOBIN_BLOCK_MARKER_END = 0xab123579
+                        PICOBIN_BLOCK_MARKER_START     = 0xffffded3
+                        PICOBIN_BLOCK_MARKER_END       = 0xab123579
+                        PICOBIN_BLOCK_ITEM_2BS_IGNORED = 0x80 | 0x7e
+                        PICOBIN_BLOCK_ITEM_2BS_LAST    = 0x80 | 0x7f
 
                         # should trim the binary up to firmware image end, leaving rest of flash like FS/EEPROM out.
                         def trim_image(Bimg: bytearray) -> bytearray:
@@ -1835,11 +1838,22 @@ def main():
                                 pagepos = pos+4096
                                 while pagepos > pos:
                                     pagepos -= 1
+                                    block_offs = 0
                                     v = struct.unpack("<I", Bimg[pagepos:pagepos+4])
-                                    if v[0] == PICOBIN_BLOCK_MARKER_END:
+                                    if v[0] == PICOBIN_BLOCK_MARKER_START:
+                                        # check if this is a valid end block
+                                        presumed_end_block = struct.unpack('<IIIiI', Bimg[pagepos:pagepos+20])
+                                        if presumed_end_block[1] & 0xff != PICOBIN_BLOCK_ITEM_2BS_IGNORED:
+                                            continue
+                                        if presumed_end_block[2] & 0xff != PICOBIN_BLOCK_ITEM_2BS_LAST:
+                                            continue
+                                        linked_header = struct.unpack("<I", Bimg[pagepos + presumed_end_block[3]:pagepos + presumed_end_block[3] + 4])
+                                        if linked_header[0] != PICOBIN_BLOCK_MARKER_START:
+                                            continue # this block is linked to a non-existent block
                                         break
+
                                 if pagepos > pos:
-                                    end = pagepos+4
+                                    end = pagepos+20 # 5 words of 4 bytes
                                     break
                             return Bimg[:end]
 
