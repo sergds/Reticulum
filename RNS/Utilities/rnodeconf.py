@@ -114,7 +114,6 @@ class KISS():
     CMD_CONF_SAVE   = 0x53
     CMD_CONF_DELETE = 0x54
     CMD_RESET       = 0x55
-    CMD_RESET_BOOT  = 0x5F
     CMD_DEV_HASH    = 0x56
     CMD_DEV_SIG     = 0x57
     CMD_HASHES      = 0x60
@@ -1018,13 +1017,6 @@ class RNode():
             raise IOError("An IO error occurred while restarting device")
         sleep(2);
 
-    def reset_to_bootloader(self):
-        kiss_command = bytes([KISS.FEND, KISS.CMD_RESET_BOOT, 0xf8, KISS.FEND])
-        written = self.serial.write(kiss_command)
-        if written != len(kiss_command):
-            raise IOError("An IO error occured while restarting device into bootloader mode")
-        sleep(1)
-
     def write_eeprom(self, addr, byte):
         write_payload = b"" + bytes([addr, byte])
         write_payload = KISS.escape(write_payload)
@@ -1510,7 +1502,6 @@ def main():
         parser.add_argument("-a", "--autoinstall", action="store_true", help="Automatic installation on various supported devices")
         parser.add_argument("-u", "--update", action="store_true", help="Update firmware to the latest version")
         parser.add_argument("-U", "--force-update", action="store_true", help="Update to specified firmware even if version matches or is older than installed version")
-        parser.add_argument("--reset-to-bootloader", action="store_true", default=False, help="Reset device into MCU specific bootloader mode to allow flashing")
         parser.add_argument("--fw-version", action="store", metavar="version", default=None, help="Use a specific firmware version for update or autoinstall")
         parser.add_argument("--fw-url", action="store", metavar="url", default=None, help="Use an alternate firmware download URL")
         parser.add_argument("--nocheck", action="store_true", help="Don't check for firmware updates online")
@@ -1809,8 +1800,11 @@ def main():
                         print("\nReady to extract firmware images from the RNode")
                         print("Press enter to start the extraction process")
                         input()
-                        rnode.reset_to_bootloader()
                         rnode.serial.close()
+                        # 1200-bps touch resets to bootrom
+                        s = serial.Serial(port=port_path, baudrate=1200)
+                        time.sleep(0.1)
+                        s.close()
                         dev = None
                         timeout = 4.0
                         while dev is None:
@@ -3643,11 +3637,6 @@ def main():
                 if rnode.platform != ROM.PLATFORM_NRF52 and rnode.platform != ROM.PLATFORM_RP2XXX:
                     rnode.hard_reset()
 
-                graceful_exit()
-
-            if args.reset_to_bootloader:
-                RNS.log("Resetting RNode into bootloader mode!")
-                rnode.reset_to_bootloader()
                 graceful_exit()
 
             RNS.log("Reading EEPROM...")
