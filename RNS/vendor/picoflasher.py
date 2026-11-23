@@ -21,16 +21,16 @@ class FlashPage():
     def __repr__(self):
         return f"<FlashPage @{self.addr:#04x}>"
 
-    def __lt__(self, other: FlashPage):
+    def __lt__(self, other: "FlashPage"):
         return self.addr < other.addr
 
-    def __gt__(self, other: FlashPage):
+    def __gt__(self, other: "FlashPage"):
         return self.addr > other.addr
 
-    def __eq__(self, other: FlashPage):
+    def __eq__(self, other: "FlashPage"):
         return self.addr == other.addr
 
-    def __ne__(self, other: FlashPage):
+    def __ne__(self, other: "FlashPage"):
         return self.addr != other.addr
 
 
