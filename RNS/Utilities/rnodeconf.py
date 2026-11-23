@@ -1876,11 +1876,16 @@ def main():
                         try:
                             with open(EXT_DIR+"/extracted_rnode_firmware.bin", "wb") as fw_file:
                                 full_binary = bytearray()
+                                trimmed_image = bytearray()
                                 print("Reading whole flash...")
                                 for block in flasher.read_flash():
                                     full_binary += block
-                                print("Postprocess: image trimming")
-                                trimmed_image = trim_image(full_binary)
+                                if rnode.mcu != ROM.MCU_RP2040:
+                                    print("Postprocess: image trimming")
+                                    trimmed_image = trim_image(full_binary)
+                                else:
+                                    # TODO: implement working reliable trimming on rp2040
+                                    trimmed_image = full_binary
                                 bttlv_offs = find_btstack_tlv_offset(trimmed_image)
                                 if bttlv_offs is not None:
                                     print("Postprocess: extract btstack tlv sectors")
