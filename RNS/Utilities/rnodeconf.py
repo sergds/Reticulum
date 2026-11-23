@@ -1813,6 +1813,10 @@ def main():
                             timeout -= 0.1
                             devs = picoflasher.picoboot.PBDevice.enumerate_devices()
                             for d in devs:
+                                if rnode.mcu == ROM.MCU_RP2040:
+                                    # on rp2040 serial number is different because it lacks chip id, pick first rp2040 in picoboot and pray
+                                    if d.idProduct == 0x0003:
+                                        dev = d
                                 if d.serial_number == port_serialno:
                                     dev = d
                         flasher = picoflasher.PicoFlasher(dev.bus, dev.address)
