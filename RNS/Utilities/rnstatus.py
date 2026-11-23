@@ -556,14 +556,15 @@ def program_setup(configdir, dispall=False, verbosity=0, name_filter=None, json=
                         if "bitrate" in ifstat and ifstat["bitrate"] != None:
                             print(f"    Rate      : {speed_str(ifstat['bitrate'])}, MTU {ifstat['mtu']}")
 
-                        if tstats:
+                        if tstats and not clients:
                             print(f"    Tunnel ID : {RNS.hexrep(ifstat['tunnel_id'], delimit=False) if ifstat['tunnel_id'] else 'None'}")
 
                         if tstats and ifstat["tunnel_id"]:
                             print(f"    Rem.Tr.ID : {RNS.prettyhexrep(ifstat['remote_transport_id']) if ifstat['remote_transport_id'] else 'Unknown'}")
 
+                            trns_str = ", transport enabled" if ifstat['rem_is_tn'] else ", no transport"
                             impl_str = f"{ifstat['rem_impl']}" if ifstat['rem_impl'] else "Unknown implementation"
-                            vers_str = f" {'.'.join([str(v) for v in ifstat['rem_vers']])}" if ifstat['rem_vers'] else ", unknown version"
+                            vers_str = f" {'.'.join([str(v) for v in ifstat['rem_vers']])}{trns_str}" if ifstat['rem_vers'] else ", unknown version"
                             print(f"    Rem.Vers. : {impl_str}{vers_str}")
 
                             dst_cost_str = f"Dst {RNS.prettycost(ifstat['rem_dst_cost'])}" if ifstat["rem_dst_cost"] != None else "Dst ?"
@@ -837,6 +838,28 @@ def program_setup(configdir, dispall=False, verbosity=0, name_filter=None, json=
                     frxstat += "  "+RNS.prettyspeed(stats["frxs"])
                     ftxstat += "  "+RNS.prettyspeed(stats["ftxs"])
                 print(f"\n Filtered     : {ftxstat}\n                {frxstat}")
+
+            if lstats:
+                if "lrxb" in stats and "ltxb" in stats and "lrxs" in stats and "ltxs" in stats:
+                    lrxb_str = "↓"+RNS.prettysize(stats["lrxb"])
+                    ltxb_str = "↑"+RNS.prettysize(stats["ltxb"])
+                    strdiff = len(lrxb_str)-len(ltxb_str)
+                    if   strdiff > 0: ltxb_str += " "*strdiff
+                    elif strdiff < 0: lrxb_str += " "*-strdiff
+
+                    parxs  = stats["prxs"]+stats["arxs"]
+                    patxs  = stats["ptxs"]+stats["atxs"]
+                    drxpct = 100.0-min(100.0, (parxs / stats["rxs"])*100.0) if stats["rxs"] else 100.0
+                    dtxpct = 100.0-min(100.0, (patxs / stats["txs"])*100.0) if stats["txs"] else 100.0
+                    drxs = stats["rxs"]*(drxpct/100.0)
+                    dtxs = stats["txs"]*(dtxpct/100.0)
+
+                    lrxspct = min(100.0, (stats["lrxs"] / drxs)*100.0) if drxs and stats["lrxs"] else 0.0
+                    ltxspct = min(100.0, (stats["ltxs"] / dtxs)*100.0) if dtxs and stats["ltxs"] else 0.0
+
+                    lrxstat = lrxb_str+"  "+RNS.prettyspeed(stats["lrxs"])+f", {int(lrxspct)}% of data flow"
+                    ltxstat = ltxb_str+"  "+RNS.prettyspeed(stats["ltxs"])+f", {int(ltxspct)}% of data flow"
+                    print(f"\n Links        : {ltxstat}\n                {lrxstat}")
 
             if pstats:
                 if "prxb" in stats and "ptxb" in stats and "prxs" in stats and "ptxs" in stats:

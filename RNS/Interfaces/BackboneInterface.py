@@ -156,6 +156,7 @@ class BackboneInterface(Interface):
         self.spawned_interfaces = []
         self.supports_discovery = True
         self.tunnels_allowed = True
+        self.lossless_medium  = True
         self.client_limit = client_limit or self.CLIENT_LIMIT
         self.block_fast_flapping = flap_block
         self.fast_flap_threshold = flap_threshold
@@ -289,7 +290,7 @@ class BackboneInterface(Interface):
             server_socket.bind(bind_address)
         else: raise TypeError(f"Invalid socket type {socket_type} for {interface}")
 
-        server_socket.listen(1)
+        server_socket.listen(16)
         server_socket.setblocking(0)
         BackboneInterface.listener_filenos[server_socket.fileno()] = (interface, server_socket)
         BackboneInterface.epoll.register(server_socket.fileno(), select.EPOLLIN)
@@ -893,6 +894,7 @@ class BackboneClientInterface(Interface):
         self.owner            = owner
         self.online           = False
         self.detached         = False
+        self.lossless_medium  = True
         self.prefer_ipv6      = prefer_ipv6
         self.i2p_tunneled     = i2p_tunneled
         self.mode             = RNS.Interfaces.Interface.Interface.MODE_FULL
@@ -922,18 +924,16 @@ class BackboneClientInterface(Interface):
             self.target_port = target_port
             self.initiator   = True
 
-            if connect_timeout != None:
-                self.connect_timeout = connect_timeout
-            else:
-                self.connect_timeout = BackboneClientInterface.INITIAL_CONNECT_TIMEOUT
-            
-            if BackboneClientInterface.SYNCHRONOUS_START:
-                self.initial_connect()
-            else:
-                thread = threading.Thread(target=self.initial_connect)
-                thread.daemon = True
-                thread.start()
-            
+            if connect_timeout != None: self.connect_timeout = connect_timeout
+            else:                       self.connect_timeout = BackboneClientInterface.INITIAL_CONNECT_TIMEOUT
+
+    def final_init(self):
+        if BackboneClientInterface.SYNCHRONOUS_START: self.initial_connect()
+        else:
+            thread = threading.Thread(target=self.initial_connect)
+            thread.daemon = True
+            thread.start()
+
     def initial_connect(self):
         if not self.connect(initial=True):
             thread = threading.Thread(target=self.reconnect)
@@ -969,7 +969,9 @@ class BackboneClientInterface(Interface):
     def early_synthesis(self, packet):
         if not self.detached:
             if not packet.packed: packet.pack()
-            frame = HDLC.frame(packet.raw)
+            if self.ifac_identity: raw = RNS.Transport.handle_outgoing_ifac(self, packet.raw);
+            else:                  raw = packet.raw
+            frame = HDLC.frame(raw)
             if not self.transmit_buffer.append(frame, self.tx_hwm):
                 raise IOError("Transmit buffer overflow at early tunnel synthesis")
 

@@ -46,6 +46,7 @@ from RNS.vendor.configobj import ConfigObj
 from RNS.vendor import umsgpack as mp
 from RNS._version import __version__
 from RNS.Utilities.rnid import validate_rsg, extract_signed_rsg_data
+from RNS.Utilities.rngit.media import SUPPORTED_IMAGE_EXTS
 from RNS.Utilities.rngit.commitsigs import unarmor_ssh_signature, parse_ssh_signature, extract_commit_author
 
 class NomadNetworkNode():
@@ -71,6 +72,7 @@ class NomadNetworkNode():
     FILE_DOWNLOAD         = "/file/download"
     FILE_WORKDOC          = "/file/workdoc"
 
+    DEFAULT_LINK_COST     = 18.0
     BLOB_SIZE_LIMIT       = 256 * 1024
     TREE_ENTRIES_PER_PAGE = 1000
     COMMITS_PER_PAGE      = 100
@@ -126,7 +128,7 @@ class NomadNetworkNode():
     CONVERTABLE_EXTS = [".md"]
     RENDERABLE_EXTS  = [".md", ".mu"]
     RENDER_DEFAULT   = [".md", ".mu"]
-    IMAGE_EXTS       = [".webp", ".png", ".jpg", ".jpeg", ".gif", ".tiff", ".tif", ".bmp"]
+    IMAGE_EXTS       = SUPPORTED_IMAGE_EXTS
 
     def __init__(self, owner=None):
         if not owner: raise TypeError(f"Invalid owner {owner} for {self}")
@@ -138,6 +140,8 @@ class NomadNetworkNode():
         self.node_name             = owner.node_name
         self.announce_interval     = owner.announce_interval
         self.last_announce         = 0
+        self.stamp_value           = None
+        self.link_cost             = self.DEFAULT_LINK_COST
         self.null_ident            = RNS.Identity.from_bytes(bytes(64))
         
         self.templates             = {}
@@ -175,8 +179,14 @@ class NomadNetworkNode():
                 if self.owner.config["pages"].as_bool("unicode_icons"): self.use_nerdfonts = False
             if "media_conversion" in self.owner.config["pages"]:
                 self.media_conversion = self.owner.config["pages"].as_bool("media_conversion")
+            if "link_cost" in self.owner.config["pages"]:
+                self.link_cost = RNS.Stamps.quantize_cost(self.owner.config["pages"].as_float("link_cost"))
+            if "stamp_value" in self.owner.config["pages"]:
+                self.stamp_value = RNS.Stamps.quantize_cost(self.owner.config["pages"].as_float("stamp_value"))
 
         self.destination = RNS.Destination(self.identity, RNS.Destination.IN, RNS.Destination.SINGLE, self.APP_NAME, "node")
+        if self.stamp_value: self.destination.set_value(self.stamp_value)
+        self.destination.set_link_cost(self.link_cost)
         self.destination.set_link_established_callback(self.remote_connected)
         self.destination.set_default_app_data(self.get_announce_app_data)
         self.register_request_handlers()

@@ -272,6 +272,7 @@ class Transport:
     allowed_destination_types   = {}           # A table for keeping track of allowed destination types
     client_destination_types    = {}           # A table for keeping track of destination types needed by applications
     destination_type_map        = {}           # Lookup table for destination type names
+    flagged_type_map            = {}           # Lookup table for flagged destination type names
     required_destinations_only  = False
     announce_rate_table         = AnnounceRateTable(max_timestamps=MAX_RATE_TIMESTAMPS)
     
@@ -379,6 +380,8 @@ class Transport:
 
     traffic_rxb                 = 0
     traffic_txb                 = 0
+    link_rxb                    = 0
+    link_txb                    = 0
     filtered_rxb                = 0
     filtered_txb                = 0
     filtered_arxc               = 0
@@ -392,6 +395,8 @@ class Transport:
     pr_txb                      = 0
     speed_rx                    = 0
     speed_tx                    = 0
+    link_speed_rx               = 0
+    link_speed_tx               = 0
     filtered_speed_rx           = 0
     filtered_speed_tx           = 0
     announce_speed_rx           = 0
@@ -422,18 +427,7 @@ class Transport:
     def internal_identity(): return Transport._identity
 
     @staticmethod
-    def start(reticulum_instance):
-        Transport.owner = reticulum_instance
-
-        Transport.INBOUND_DA_QUEUE_LENGTH = RNS.Reticulum.default_data_queue_length()     or Transport.INBOUND_DA_QUEUE_LENGTH
-        Transport.INBOUND_AN_QUEUE_LENGTH = RNS.Reticulum.default_announce_queue_length() or Transport.INBOUND_AN_QUEUE_LENGTH
-        Transport.INBOUND_PR_QUEUE_LENGTH = RNS.Reticulum.default_pr_queue_length()       or Transport.INBOUND_PR_QUEUE_LENGTH
-        Transport.INBOUND_IL_QUEUE_LENGTH = RNS.Reticulum.default_il_queue_length()       or Transport.INBOUND_IL_QUEUE_LENGTH
-        Transport.inbound_queues = InboundQueues((Transport.INBOUND_DA_QUEUE_LENGTH,
-                                                  Transport.INBOUND_AN_QUEUE_LENGTH,
-                                                  Transport.INBOUND_PR_QUEUE_LENGTH,
-                                                  Transport.INBOUND_IL_QUEUE_LENGTH))
-
+    def ensure_identity():
         if Transport.identity == None:
             transport_identity_path = RNS.Reticulum.storagepath+"/transport_identity"
             if os.path.isfile(transport_identity_path):
@@ -449,12 +443,27 @@ class Transport:
             Transport._identity = Transport.identity
             if not RNS.Reticulum.transport_enabled() and not RNS.Reticulum.static_transport_identity():
                 Transport._identity = Transport.identity
-                Transport.identity   = RNS.Identity()
+                Transport.identity  = RNS.Identity()
                 RNS.log(f"Initialized ephemeral transport identity {RNS.prettyhexrep(Transport.identity.hash)}", RNS.LOG_VERBOSE) if RNS.sl(RNS.LOG_VERBOSE) else None
 
             if RNS.Reticulum.local_hops_delta(): Transport.local_hops_delta = (ord(os.urandom(1))%6)+2
 
         if Transport.application_identity == None: Transport.application_identity = RNS.Identity()
+
+    @staticmethod
+    def start(reticulum_instance):
+        Transport.owner = reticulum_instance
+
+        Transport.INBOUND_DA_QUEUE_LENGTH = RNS.Reticulum.default_data_queue_length()     or Transport.INBOUND_DA_QUEUE_LENGTH
+        Transport.INBOUND_AN_QUEUE_LENGTH = RNS.Reticulum.default_announce_queue_length() or Transport.INBOUND_AN_QUEUE_LENGTH
+        Transport.INBOUND_PR_QUEUE_LENGTH = RNS.Reticulum.default_pr_queue_length()       or Transport.INBOUND_PR_QUEUE_LENGTH
+        Transport.INBOUND_IL_QUEUE_LENGTH = RNS.Reticulum.default_il_queue_length()       or Transport.INBOUND_IL_QUEUE_LENGTH
+        Transport.inbound_queues = InboundQueues((Transport.INBOUND_DA_QUEUE_LENGTH,
+                                                  Transport.INBOUND_AN_QUEUE_LENGTH,
+                                                  Transport.INBOUND_PR_QUEUE_LENGTH,
+                                                  Transport.INBOUND_IL_QUEUE_LENGTH))
+
+        Transport.ensure_identity()
 
         if not RNS.Reticulum.transport_enabled() or Transport.owner.is_connected_to_shared_instance:
             Transport.unused_path_linger = Transport.UNUSED_PATH_LINGER_LEAF
@@ -755,7 +764,8 @@ class Transport:
 
     @staticmethod
     def count_traffic_loop():
-        rxp = 0; txp = 0; cts = None
+        rxp  = 0; txp  = 0; cts = None
+        lrxb = 0; ltxb = 0;
 
         while True:
             time.sleep(1)
@@ -767,8 +777,8 @@ class Transport:
                 iafreq = 0; oafreq = 0; ipfreq = 0; opfreq = 0
 
                 for interface in Transport.interfaces.copy():
-                    if not hasattr(interface, "parent_interface") or interface.parent_interface == None:
-                        if hasattr(interface, "is_local_shared_instance"): continue
+                    if interface.parent_interface == None:
+                        if interface.is_local_shared_instance: continue
                         if hasattr(interface, "transport_traffic_counter"):
                             now = time.monotonic()
 
@@ -819,7 +829,8 @@ class Transport:
                                                                     "arxb": interface.arxb, "atxb": interface.atxb,
                                                                     "prxb": interface.prxb, "ptxb": interface.ptxb,
                                                                     "frxb": interface.frxb, "ftxb": interface.ftxb }
-                if not Transport.start_time: rpps = 0; tpps = 0
+
+                if not Transport.start_time: rpps = 0; tpps = 0; lrxs = 0; ltxs = 0
                 else:
                     if not cts: ts = Transport.start_time
                     else:       ts = cts
@@ -828,6 +839,10 @@ class Transport:
                     tpps = (Transport.tx_packets - txp) / td
                     rxp  = Transport.rx_packets
                     txp  = Transport.tx_packets
+                    lrxs = (Transport.link_rxb  - lrxb)*8 / td
+                    ltxs = (Transport.link_txb  - ltxb)*8 / td
+                    lrxb = Transport.link_rxb
+                    ltxb = Transport.link_txb
 
                 Transport.rx_pps             = int(round(rpps))
                 Transport.tx_pps             = int(round(tpps))
@@ -835,6 +850,8 @@ class Transport:
                 Transport.traffic_txb       += txb
                 Transport.speed_rx           = rxs
                 Transport.speed_tx           = txs
+                Transport.link_speed_rx      = lrxs
+                Transport.link_speed_tx      = ltxs
                 Transport.filtered_rxb      += frxb
                 Transport.filtered_txb      += ftxb
                 Transport.filtered_speed_rx  = frxs
@@ -882,7 +899,9 @@ class Transport:
                                 # If we are not a Transport Instance, finding a pending link
                                 # that was never activated will trigger an expiry of the path
                                 # to the destination, and an attempt to rediscover the path.
-                                if not RNS.Reticulum.transport_enabled():
+                                path_entry = Transport.path_table.get(link.destination.hash, None)
+                                local_destination = path_entry and path_entry[IDX_PT_HOPS] == 0
+                                if not local_destination and not RNS.Reticulum.transport_enabled():
                                     Transport.expire_path(link.destination.hash)
 
                                     # If we are connected to a shared instance, it will take
@@ -963,6 +982,7 @@ class Transport:
                                     packet = announce_entry[IDX_AT_PACKET]
                                     block_rebroadcasts = announce_entry[IDX_AT_BLCK_RBRD]
                                     attached_interface = announce_entry[IDX_AT_ATTCHD_IF]
+                                    blocked_interfaces = announce_entry[IDX_AT_DEDUP_IFS]
                                     announce_context = RNS.Packet.NONE
                                     if block_rebroadcasts: announce_context = RNS.Packet.PATH_RESPONSE
                                     announce_data = packet.data
@@ -984,6 +1004,7 @@ class Transport:
                                                                 transport_type = Transport.TRANSPORT,
                                                                 transport_id = Transport.identity.hash,
                                                                 attached_interface = attached_interface,
+                                                                blocked_interfaces = blocked_interfaces or None,
                                                                 context_flag = packet.context_flag)
 
                                         new_packet.hops = announce_entry[4]
@@ -1103,8 +1124,9 @@ class Transport:
                                     # attempt to rediscover a path to the destination, if this
                                     # has not already happened recently.
                                     elif not path_request_throttle and lr_taken_hops == 0:
-                                        RNS.log("Trying to rediscover path for "+RNS.prettyhexrep(link_entry[IDX_LT_DSTHASH])+" since an attempted local client link was never established", RNS.LOG_PATHING) if RNS.sl(RNS.LOG_PATHING) else None
-                                        path_request_conditions = True
+                                        if not Transport.hops_to(link_entry[IDX_LT_DSTHASH]) == 0:
+                                            RNS.log("Trying to rediscover path for "+RNS.prettyhexrep(link_entry[IDX_LT_DSTHASH])+" since an attempted local client link was never established", RNS.LOG_PATHING) if RNS.sl(RNS.LOG_PATHING) else None
+                                            path_request_conditions = True
 
                                     # If the link destination was previously only 1 hop
                                     # away, this likely means that it was local to one
@@ -1179,7 +1201,7 @@ class Transport:
                             if check_unused and not path_used:
                                 unused_paths.append(((1 if slow_interface else 0), path_expiry, destination_hash))
 
-                            if now > path_expiry:
+                            if now > path_expiry and path_hops != 0:
                                 stale_paths.append(destination_hash)
                                 Transport.should_collect = True
                                 RNS.log(f"Path to {RNS.prettyhexrep(destination_hash)} timed out and was removed", RNS.LOG_PATHING) if RNS.sl(RNS.LOG_PATHING) else None
@@ -1187,7 +1209,7 @@ class Transport:
                                 stale_paths.append(destination_hash)
                                 Transport.should_collect = True
                                 RNS.log(f"Path to {RNS.prettyhexrep(destination_hash)} was removed since the attached interface no longer exists", RNS.LOG_PATHING) if RNS.sl(RNS.LOG_PATHING) else None
-                            elif path_used == 0 and now > path_timestamp + (Transport.unused_path_linger * (Transport.PATH_SLOW_LINGER_FACTOR if slow_interface else 1)):
+                            elif path_hops != 0 and path_used == 0 and now > path_timestamp + (Transport.unused_path_linger * (Transport.PATH_SLOW_LINGER_FACTOR if slow_interface else 1)):
                                 stale_paths.append(destination_hash)
                                 Transport.should_collect = True
                                 RNS.log(f"Removing never used path to {RNS.prettyhexrep(destination_hash)}", RNS.LOG_PATHING) if RNS.sl(RNS.LOG_PATHING) else None
@@ -1604,9 +1626,8 @@ class Transport:
     @staticmethod
     def transmit(interface, raw):
         try:
-            if hasattr(interface, "ifac_identity") and interface.ifac_identity != None:
-                interface.process_outgoing(Transport.handle_outgoing_ifac(interface, raw))
-            else: interface.process_outgoing(raw)
+            if interface.ifac_identity != None: interface.process_outgoing(Transport.handle_outgoing_ifac(interface, raw))
+            else:                               interface.process_outgoing(raw)
             Transport.tx_packets += 1
 
         except Exception as e: RNS.log("Error while transmitting on "+str(interface)+". The contained exception was: "+str(e), RNS.LOG_ERROR)
@@ -1723,7 +1744,9 @@ class Transport:
         else:
             stored_hash = False
             if packet.attached_interface: potential_interfaces = [packet.attached_interface]
-            else:                         potential_interfaces = Transport.interfaces
+            else:
+                if not packet.blocked_interfaces: potential_interfaces = Transport.interfaces
+                else: potential_interfaces = [interface for interface in Transport.interfaces if not interface in packet.blocked_interfaces]
 
             for interface in potential_interfaces:
                 if interface.OUT and interface.online:
@@ -2052,7 +2075,7 @@ class Transport:
         # If interface access codes are enabled,
         # we must authenticate each packet.
         if len(raw) > 2:
-            if interface != None and hasattr(interface, "ifac_identity") and interface.ifac_identity != None:
+            if interface != None and interface.ifac_identity != None:
                 if not ifac_handled:
                     # Check that IFAC flag is set
                     if raw[0] & 0x80 == 0x80:
@@ -2450,7 +2473,8 @@ class Transport:
                                             packet.hops,                    # 5: Taken hops
                                             packet.destination_hash,        # 6: Original destination hash
                                             False,                          # 7: Validated
-                                            proof_timeout ]                 # 8: Proof timeout timestamp
+                                            proof_timeout,                  # 8: Proof timeout timestamp
+                                            0 ]                             # 9: Traffic counter
 
                             with Transport.link_table_lock: Transport.link_table[RNS.Link.link_id_from_lr_packet(packet)] = link_entry
                             link_request_handled = True
@@ -2481,6 +2505,9 @@ class Transport:
                     if not link_entry[IDX_LT_VALIDATED]:
                         RNS.log(f"Pre-validation link packet from {packet.receiving_interface}", RNS.LOG_WARNING) # TODO: Remove
                         return packet.receiving_interface.protocol_violation("Link packet received before link validation") if packet.receiving_interface else None
+
+                    if not Transport.is_local_client_interface(packet.receiving_interface):
+                        Transport.link_rxb += len(packet.raw)
 
                     # If receiving and outbound interface is
                     # the same for this link, direction doesn't
@@ -2515,8 +2542,11 @@ class Transport:
                         new_raw += packet.raw[2:]
                         Transport.transmit(outbound_interface, new_raw)
 
+                        raw_len = len(new_raw)
                         active_time = time.time()
+                        if not Transport.is_local_client_interface(outbound_interface): Transport.link_txb += raw_len
                         Transport.link_table[packet.destination_hash][IDX_LT_TIMESTAMP] = active_time
+                        Transport.link_table[packet.destination_hash][IDX_LT_TRXB] += raw_len
                         link_path_entry = Transport.path_table.get(Transport.link_table[packet.destination_hash][IDX_LT_DSTHASH])
                         if link_path_entry: link_path_entry[IDX_PT_USED] = active_time
 
@@ -2578,6 +2608,7 @@ class Transport:
                     if not random_blob: return packet.receiving_interface.protocol_violation("No random blob in data") if packet.receiving_interface else None
 
                     with Transport.inbound_announce_lock:
+                        table_insertion_only = False
                         existing_path_entry = Transport.path_table.get(packet.destination_hash)
                         announced_destination_known = existing_path_entry != None
                         if not announced_destination_known:
@@ -2655,9 +2686,16 @@ class Transport:
                                         if Transport.path_is_unresponsive(packet.destination_hash):
                                             RNS.log("Replacing path table entry for "+str(RNS.prettyhexrep(packet.destination_hash))+" with new announce, since previously tried path was unresponsive", RNS.LOG_PATHING) if RNS.sl(RNS.LOG_PATHING) else None
                                             should_add = True
+                                            table_insertion_only = True
                                         else: should_add = False
 
-                        if should_add:
+                        if not should_add:
+                            waiting_announce = Transport.announce_table.get(packet.destination_hash, None)
+                            if waiting_announce and waiting_announce[IDX_AT_PACKET].packet_hash == packet.packet_hash:
+                                if not packet.receiving_interface.shared_medium:
+                                    waiting_announce[IDX_AT_DEDUP_IFS].add(packet.receiving_interface)
+
+                        else:
                             now = time.time()
                             is_from_local_client = Transport.from_local_client(packet)
 
@@ -2692,28 +2730,33 @@ class Transport:
                                         retransmit_timeout = now
                                         retries = Transport.PATHFINDER_R
 
-                                    with Transport.announce_table_lock:
-                                        Transport.announce_table[packet.destination_hash] = [
-                                            now,                # 0: IDX_AT_TIMESTAMP
-                                            retransmit_timeout, # 1: IDX_AT_RTRNS_TMO
-                                            retries,            # 2: IDX_AT_RETRIES
-                                            received_from,      # 3: IDX_AT_RCVD_IF
-                                            announce_hops,      # 4: IDX_AT_HOPS
-                                            packet,             # 5: IDX_AT_PACKET
-                                            local_rebroadcasts, # 6: IDX_AT_LCL_RBRD
-                                            block_rebroadcasts, # 7: IDX_AT_BLCK_RBRD
-                                            attached_interface, # 8: IDX_AT_ATTCHD_IF
-                                        ]
+                                    if not table_insertion_only:
+                                        with Transport.announce_table_lock:
+                                            Transport.announce_table[packet.destination_hash] = [
+                                                now,                # 0: IDX_AT_TIMESTAMP
+                                                retransmit_timeout, # 1: IDX_AT_RTRNS_TMO
+                                                retries,            # 2: IDX_AT_RETRIES
+                                                received_from,      # 3: IDX_AT_RCVD_IF
+                                                announce_hops,      # 4: IDX_AT_HOPS
+                                                packet,             # 5: IDX_AT_PACKET
+                                                local_rebroadcasts, # 6: IDX_AT_LCL_RBRD
+                                                block_rebroadcasts, # 7: IDX_AT_BLCK_RBRD
+                                                attached_interface, # 8: IDX_AT_ATTCHD_IF
+                                                set(),              # 9: IDX_AT_DEDUP_IFS
+                                            ]
 
                             elif is_from_local_client and packet.context == RNS.Packet.PATH_RESPONSE:
                                 # If this is a path response from a local client,
                                 # check if any external interfaces have pending
                                 # path requests.
+                                Transport.mark_path_responsive(packet.destination_hash)
                                 with Transport.pending_local_prs_lock:
                                     if packet.destination_hash in Transport.pending_local_path_requests:
                                         desiring_interface = Transport.pending_local_path_requests.pop(packet.destination_hash)
                                         retransmit_timeout = now
-                                        retries = Transport.PATHFINDER_R
+                                        retries            = Transport.PATHFINDER_R
+                                        attached_interface = desiring_interface
+                                        block_rebroadcasts = True
 
                                         with Transport.announce_table_lock:
                                             Transport.announce_table[packet.destination_hash] = [
@@ -2725,7 +2768,8 @@ class Transport:
                                                 packet,
                                                 local_rebroadcasts,
                                                 block_rebroadcasts,
-                                                attached_interface
+                                                attached_interface,
+                                                set(),
                                             ]
 
                             # If we have any local clients connected, we re-
@@ -2807,7 +2851,9 @@ class Transport:
                                 path_table_entry = [now, received_from, announce_hops, expires, random_blobs, packet.receiving_interface, packet.packet_hash, path_used]
                                 with Transport.path_table_lock: Transport.path_table[packet.destination_hash] = path_table_entry
 
-                            Transport.mark_path_unknown_state(packet.destination_hash)
+                            if is_from_local_client: Transport.mark_path_responsive(packet.destination_hash)
+                            else:                    Transport.mark_path_unknown_state(packet.destination_hash)
+
                             if RNS.sl(RNS.LOG_PATHING):
                                 destination_value = RNS.Identity.recall_stamp_value(packet.destination_hash)
                                 value_str = f" (v:{RNS.prettycost(destination_value)})" if destination_value else " (v:n)"
@@ -3740,23 +3786,33 @@ class Transport:
     def link_distribution():
         link_destinations = {}
 
-        # TODO: Finish implementation
-        return link_destinations
+        try:
+            for link_id in Transport.link_table:
+                link_entry = Transport.link_table.get(link_id)
+                if link_entry:
+                    active           = link_entry[IDX_LT_VALIDATED]
+                    link_destination = link_entry[IDX_LT_DSTHASH]
+                    link_traffic     = link_entry[IDX_LT_TRXB]
+                    from_interface   = link_entry[IDX_LT_RCVD_IF]
+                    from_ifhash      = from_interface.get_hash()
 
-        # try:
-        #     for link_id in Transport.link_table:
-        #         link_entry = Transport.link_table.get(link_id)
-        #         if link_entry:
-        #             link_destination = link_entry[IDX_LT_DSTHASH]
-        #             active           = link_entry[IDX_LT_VALIDATED]
+                    entry = link_destinations.get(link_destination, None)
+                    if not entry:
+                        entry = { "active": 0, "pending": 0,
+                                  "traffic": 0, "from_ifs": [] }
 
-        #             if not link_destination in link_destinations:
-        #                 link_destinations[link_destination] = {}
+                        link_destinations[link_destination] = entry
 
-        #             else:
-        #                 pass
+                    entry["traffic"] += link_traffic
+                    if not from_ifhash in entry["from_ifs"]: entry["from_ifs"].append(from_ifhash)
+                    if active: entry["active"]  += 1
+                    else:      entry["pending"] += 1
 
-        # except Exception as e: RNS.log(f"Error while getting link distribution stats: {e}", RNS.LOG_DEBUG)
+
+            return link_destinations
+
+        except Exception as e: RNS.log(f"Error while getting link distribution stats: {e}", RNS.LOG_DEBUG)
+        return {}
 
     #################
     # Path Handling #
@@ -3823,6 +3879,10 @@ class Transport:
                     return True
 
             return False
+
+    @staticmethod
+    def get_path_state(destination_hash):
+        return Transport.path_states.get(destination_hash, Transport.STATE_UNKNOWN)
 
     @staticmethod
     def await_path(destination_hash, timeout=None, on_interface=None):
@@ -4022,7 +4082,7 @@ class Transport:
                         Transport.held_announces[packet.destination_hash] = held_entry
                     
                     with Transport.announce_table_lock:
-                        Transport.announce_table[packet.destination_hash] = [now, retransmit_timeout, retries, received_from, announce_hops, packet, local_rebroadcasts, block_rebroadcasts, attached_interface]
+                        Transport.announce_table[packet.destination_hash] = [now, retransmit_timeout, retries, received_from, announce_hops, packet, local_rebroadcasts, block_rebroadcasts, attached_interface, set()]
 
                     if not Transport.owner.is_connected_to_shared_instance: RNS.Identity._used_destination_data(packet.destination_hash)
 
@@ -4248,20 +4308,20 @@ class Transport:
 
     @staticmethod
     def is_local_client_interface(interface):
-        if hasattr(interface, "parent_interface"):
-            if hasattr(interface.parent_interface, "is_local_shared_instance"): return True
-            else:                                                               return False
-        else:                                                                   return False
+        if interface.parent_interface:
+            if interface.parent_interface.is_local_shared_instance: return True
+            else:                                                   return False
+        else:                                                       return False
 
     @staticmethod
     def is_shared_instance(interface):
-        if hasattr(interface, "is_local_shared_instance"): return True
-        else:                                              return False
+        if interface.is_local_shared_instance: return True
+        else:                                  return False
 
     @staticmethod
     def interface_to_shared_instance(interface):
-        if hasattr(interface, "is_connected_to_shared_instance"): return True
-        else:                                                     return False
+        if interface.is_connected_to_shared_instance: return True
+        else:                                         return False
 
     @staticmethod
     def interface_hashes():
@@ -4827,6 +4887,7 @@ class Transport:
                 Transport.blocked_destination_types[name_hash] = [True]
                 Transport.client_destination_types.pop(name_hash, None)
                 Transport.destination_type_map[name_hash] = full_name
+                Transport.flagged_type_map[name_hash] = full_name
             RNS.log(f"Blocked {full_name} {RNS.prettyhexrep(name_hash)} destinations", RNS.LOG_DEBUG)
             return True
         except Exception as e: RNS.log(f"Could not add {full_name} destination type to blocked list: {e}", RNS.LOG_ERROR)
@@ -4899,7 +4960,9 @@ class Transport:
 
     @staticmethod
     def destination_type_name(name_hash):
-        return f"<{Transport.destination_type_map.get(name_hash, 'unknown')}>"
+        if   name_hash in Transport.destination_type_map: return Transport.destination_type_map[name_hash]
+        elif name_hash in Transport.flagged_type_map:     return Transport.flagged_type_map[name_hash]
+        else:                                             return RNS.hexrep(name_hash, delimit=False)
 
     ###################
     # Various Helpers #
@@ -4916,7 +4979,7 @@ class Transport:
         if not os.getpid() == RNS.Reticulum.get_instance_pid(): return
         Transport._should_run = False
         Transport.void_queues()
-        if not Transport.owner.is_connected_to_shared_instance:
+        if hasattr(Transport, "owner") and not Transport.owner.is_connected_to_shared_instance:
             Transport.persist_data()
             if Transport.announce_cache != None: Transport.announce_cache.flush()
 
@@ -5095,6 +5158,7 @@ IDX_AT_PACKET    = 5
 IDX_AT_LCL_RBRD  = 6
 IDX_AT_BLCK_RBRD = 7
 IDX_AT_ATTCHD_IF = 8
+IDX_AT_DEDUP_IFS = 9
 
 # Transport.link_table entry indices
 IDX_LT_TIMESTAMP = 0
@@ -5106,6 +5170,7 @@ IDX_LT_HOPS      = 5
 IDX_LT_DSTHASH   = 6
 IDX_LT_VALIDATED = 7
 IDX_LT_PROOF_TMO = 8
+IDX_LT_TRXB      = 9
 
 # Transport.tunnels entry indices
 IDX_TT_TUNNEL_ID = 0

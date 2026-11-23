@@ -7,7 +7,7 @@
         <link rel="prefetch" href="_static/rns_logo_512.png" as="image">
 
     <!-- Generated with Sphinx 8.2.3 and Furo 2025.09.25.dev1 -->
-        <title>Git Over Reticulum - Reticulum Network Stack 1.6.0 documentation</title>
+        <title>Git Over Reticulum - Reticulum Network Stack 1.6.1 documentation</title>
       <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=d111a655" />
     <link rel="stylesheet" type="text/css" href="_static/styles/furo.css?v=580074bf" />
     <link rel="stylesheet" type="text/css" href="_static/copybutton.css?v=76b2166b" />
@@ -180,7 +180,7 @@
       </label>
     </div>
     <div class="header-center">
-      <a href="index.html"><div class="brand">Reticulum Network Stack 1.6.0 documentation</div></a>
+      <a href="index.html"><div class="brand">Reticulum Network Stack 1.6.1 documentation</div></a>
     </div>
     <div class="header-right">
       <div class="theme-toggle-container theme-toggle-header">
@@ -204,7 +204,7 @@
     <img class="sidebar-logo" src="_static/rns_logo_512.png" alt="Logo"/>
   </div>
   
-  <span class="sidebar-brand-text">Reticulum Network Stack 1.6.0 documentation</span>
+  <span class="sidebar-brand-text">Reticulum Network Stack 1.6.1 documentation</span>
   
 </a><form class="sidebar-search-container" method="get" action="search.html" role="search">
   <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
@@ -759,7 +759,7 @@ options:
 <h3>Enabling the Git Page Node<a class="headerlink" href="#enabling-the-git-page-node" title="Link to this heading">¶</a></h3>
 <p>To enable the page node, add the following to your <code class="docutils literal notranslate"><span class="pre">~/.rngit/config</span></code> file:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>[pages]
-serve_nomadnet = yes
+  serve_nomadnet = yes
 </pre></div>
 </div>
 <p>When the page node is enabled, <code class="docutils literal notranslate"><span class="pre">rngit</span></code> will listen on a Nomad Network node destination in addition to the Git repository destination. You can view the destination hash by running:</p>
@@ -769,6 +769,13 @@ Git Peer Identity         : &lt;959e10e5efc1bd9d97a4083babe51dea&gt;
 Repository Node Identity  : &lt;153cb870b4665b8c1c348896292b0bad&gt;
 Repositories Destination  : &lt;0d7334d411d00120cbad24edf355fdd2&gt;
 Nomad Network Destination : &lt;50824b711717f97c2fb1166ceddd5ea9&gt;
+</pre></div>
+</div>
+<p>You can configure the destination stamp value and required link establishment cost with the following options:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>[pages]
+  serve_nomadnet = yes
+  stamp_value = 25.0
+  link_cost = 18.0
 </pre></div>
 </div>
 </section>
@@ -838,8 +845,8 @@ def hello_world():
 <p><strong>Icon Sets</strong></p>
 <p>By default, the page node uses Nerd Font icons. If you prefer simpler icons or your terminal does not support Nerd Fonts, you can enable Unicode icons instead:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>[pages]
-serve_nomadnet = yes
-unicode_icons = yes
+  serve_nomadnet = yes
+  unicode_icons = yes
 </pre></div>
 </div>
 </section>
@@ -862,6 +869,8 @@ unicode_icons = yes
   node_name = My Git Node
   announce_interval = 360
   record_stats = yes
+  stamp_value = 27.5
+  link_cost = 18.5
 
 [repositories]
   public = /var/git/public
@@ -874,6 +883,8 @@ unicode_icons = yes
 [pages]
   serve_nomadnet = yes
   unicode_icons = no
+  stamp_value = 27.5
+  link_cost = 18.7
 </pre></div>
 </div>
 </section>
@@ -1602,7 +1613,7 @@ done
       
     </aside>
   </div>
-</div><script src="_static/documentation_options.js?v=72d88caf"></script>
+</div><script src="_static/documentation_options.js?v=d6a008b6"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="_static/scripts/furo.js?v=46bd48cc"></script>

@@ -239,6 +239,7 @@ class Link:
 
     def __init__(self, destination=None, established_callback=None, closed_callback=None, owner=None, peer_pub_bytes=None, peer_sig_pub_bytes=None, mode=MODE_DEFAULT):
         if destination != None and destination.type != RNS.Destination.SINGLE: raise TypeError("Links can only be established to the \"single\" destination type")
+        if not mode in Link.ENABLED_MODES: raise TypeError(f"Requested link mode {Link.MODE_DESCRIPTIONS[mode]} not enabled")
         self.mode = mode
         self.link_id = None
         self.rtt = None
@@ -1030,6 +1031,7 @@ class Link:
                 if packet.context != RNS.Packet.KEEPALIVE: self.last_data = self.last_inbound
                 self.rx += 1
                 self.rxbytes += len(packet.data)
+                RNS.Transport.link_rxb += len(packet.raw)
                 if self.status == Link.STALE: self.status = Link.ACTIVE
 
                 if packet.packet_type == RNS.Packet.DATA:
