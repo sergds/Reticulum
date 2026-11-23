@@ -127,6 +127,7 @@ class TCPClientInterface(Interface):
         self.online           = False
         self.detached         = False
         self.tunnels_allowed  = True
+        self.lossless_medium  = True
         self.kiss_framing     = kiss_framing
         self.i2p_tunneled     = i2p_tunneled
         self.mode             = RNS.Interfaces.Interface.Interface.MODE_FULL
@@ -159,13 +160,13 @@ class TCPClientInterface(Interface):
                 self.connect_timeout = connect_timeout
             else:
                 self.connect_timeout = TCPClientInterface.INITIAL_CONNECT_TIMEOUT
-            
-            if TCPClientInterface.SYNCHRONOUS_START:
-                self.initial_connect()
-            else:
-                thread = threading.Thread(target=self.initial_connect)
-                thread.daemon = True
-                thread.start()
+
+    def final_init(self):
+        if TCPClientInterface.SYNCHRONOUS_START: self.initial_connect()
+        else:
+            thread = threading.Thread(target=self.initial_connect)
+            thread.daemon = True
+            thread.start()
             
     def initial_connect(self):
         if not self.connect(initial=True):
@@ -230,9 +231,11 @@ class TCPClientInterface(Interface):
     def early_synthesis(self, packet):
         if not self.detached:
             if not packet.packed: packet.pack()
+            if self.ifac_identity: raw = RNS.Transport.handle_outgoing_ifac(self, packet.raw);
+            else:                  raw = packet.raw
 
-            if self.kiss_framing: frame = bytes([KISS.FEND])+bytes([KISS.CMD_DATA])+KISS.escape(packet.raw)+bytes([KISS.FEND])
-            else:                 frame = bytes([HDLC.FLAG])+HDLC.escape(packet.raw)+bytes([HDLC.FLAG])
+            if self.kiss_framing: frame = bytes([KISS.FEND])+bytes([KISS.CMD_DATA])+KISS.escape(raw)+bytes([KISS.FEND])
+            else:                 frame = bytes([HDLC.FLAG])+HDLC.escape(raw)+bytes([HDLC.FLAG])
 
             self.socket.sendall(frame)
             self.txb += len(frame)
@@ -544,6 +547,7 @@ class TCPServerInterface(Interface):
         self.name = name
         self.detached = False
         self.tunnels_allowed = True
+        self.lossless_medium = True
 
         self.i2p_tunneled = i2p_tunneled
         self.mode         = RNS.Interfaces.Interface.Interface.MODE_FULL

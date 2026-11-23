@@ -291,6 +291,9 @@ class Reticulum:
         Reticulum.__discover_interfaces               = False
         Reticulum.__autoconnect_discovered_interfaces = False
         Reticulum.__autoconnect_unverified            = False
+        Reticulum.__autoconnect_warn                  = 6
+        Reticulum.__autoconnect_cap                   = 12
+        Reticulum.__autoconnect_caps_disabled         = False
         Reticulum.__autoconnect_interface_mode        = None
         Reticulum.__autoconnect_interface_gravity     = None
         Reticulum.__autoconnect_announces_to_internal = None
@@ -386,10 +389,6 @@ class Reticulum:
             RNS.Transport.STAMPS_ENFORCED    = True
             RNS.Transport.LR_STAMPS_ENFORCED = True
 
-        RNS.Identity.load_known_destinations()
-        if not self.is_connected_to_shared_instance: RNS.Identity._clean_ratchets()
-        RNS.Transport.start(self)
-
         if self.use_af_unix:
             self.rpc_addr = f"\0rns/{self.local_socket_path}/rpc"
             self.rpc_type = "AF_UNIX"
@@ -400,8 +399,12 @@ class Reticulum:
         if self.rpc_key == None:
             self.rpc_key  = RNS.Identity.full_hash(RNS.Transport.internal_identity().get_private_key())
         
+        RNS.Identity.load_known_destinations()
+        if not self.is_connected_to_shared_instance: RNS.Identity._clean_ratchets()
+        RNS.Transport.start(self)
+
         if self.is_shared_instance:
-            self.rpc_listener = multiprocessing.connection.Listener(self.rpc_addr, family=self.rpc_type, authkey=self.rpc_key)
+            self.rpc_listener = multiprocessing.connection.Listener(self.rpc_addr, family=self.rpc_type, backlog=128, authkey=self.rpc_key)
             thread = threading.Thread(target=self.rpc_loop)
             thread.daemon = True
             thread.start()
@@ -737,9 +740,32 @@ class Reticulum:
                         except Exception as e: raise ValueError(f"Invalid identity hash for interface discovery source: {hexhash}")
                         if not source_identity_hash in Reticulum.__interface_sources: Reticulum.__interface_sources.append(source_identity_hash)
 
+                if option == "autoconnect_discovered_interfaces_disable_caps":
+                    v = self.config["reticulum"].as_bool(option)
+                    if v: Reticulum.__autoconnect_caps_disabled = True
+
                 if option == "autoconnect_discovered_interfaces":
                     v = self.config["reticulum"].as_int(option)
                     if v > 0: Reticulum.__autoconnect_discovered_interfaces = v
+                    if not Reticulum.__autoconnect_caps_disabled:
+                        if Reticulum.__autoconnect_discovered_interfaces > Reticulum.__autoconnect_cap:
+                            Reticulum.__autoconnect_discovered_interfaces = Reticulum.__autoconnect_cap
+                            RNS.log(f"", RNS.LOG_WARNING)
+                            RNS.log(f"Auto-connect interface target was capped to {Reticulum.__autoconnect_discovered_interfaces}", RNS.LOG_WARNING)
+                            RNS.log(f"Using large numbers of auto-connected interfaces will not lead to better", RNS.LOG_WARNING)
+                            RNS.log(f"connectivity or redundancy. If you really know what you're doing, and are", RNS.LOG_WARNING)
+                            RNS.log(f"certain that you need this, you will also know how to get around this check.", RNS.LOG_WARNING)
+                        if Reticulum.__autoconnect_discovered_interfaces > Reticulum.__autoconnect_warn:
+                            RNS.log(f"", RNS.LOG_WARNING)
+                            RNS.log(f"You have configured more than {Reticulum.__autoconnect_warn} auto-connect interfaces.", RNS.LOG_WARNING)
+                            RNS.log(f"In almost all situations, this is excessive, and should be avoided.", RNS.LOG_WARNING)
+                            RNS.log(f"For a normal home or office node, 2-3 autoconnects will be sufficient.", RNS.LOG_WARNING)
+                            RNS.log(f"", RNS.LOG_WARNING)
+                            RNS.log(f"If you're running a fast, well-connected transport node that can actually", RNS.LOG_WARNING)
+                            RNS.log(f"provide additional capacity and transport to the network, you can consider", RNS.LOG_WARNING)
+                            RNS.log(f"raising this number to {Reticulum.__autoconnect_warn}-{Reticulum.__autoconnect_warn+3}. Only in the rarest of cases will going beyond", RNS.LOG_WARNING)
+                            RNS.log(f"this actually provide any benefit.", RNS.LOG_WARNING)
+                            RNS.log(f"", RNS.LOG_WARNING)
 
                 if option == "autoconnect_unverified_implementations":
                     v = self.config["reticulum"].as_bool(option)
@@ -874,11 +900,34 @@ class Reticulum:
 
             except Exception as e: RNS.log(f"Error while loading blocked IP list: {e}", RNS.LOG_ERROR)
 
+        if os.path.isfile(Reticulum.configdir+"/known_destination_types"):
+            try:
+                with open(Reticulum.configdir+"/known_destination_types", "r") as f:
+                    dst_types = f.read().strip().splitlines()
+                    for line in dst_types:
+                        dst_type = line.strip()
+                        if dst_type.startswith("#"): continue
+                        RNS.Transport.destination_type_map[RNS.Destination.name_hash(dst_type)] = dst_type
+
+            except Exception as e: RNS.log(f"Error while loading known destination types list: {e}", RNS.LOG_ERROR)
+
+        if os.path.isfile(Reticulum.configdir+"/flagged_destination_types"):
+            try:
+                with open(Reticulum.configdir+"/flagged_destination_types", "r") as f:
+                    dst_types = f.read().strip().splitlines()
+                    for line in dst_types:
+                        dst_type = line.strip()
+                        if dst_type.startswith("#"): continue
+                        RNS.Transport.flagged_type_map[RNS.Destination.name_hash(dst_type)] = dst_type
+
+            except Exception as e: RNS.log(f"Error while loading flagged destination types list: {e}", RNS.LOG_ERROR)
+
         dql = RNS.Reticulum.default_data_queue_length() or RNS.Transport.INBOUND_DA_QUEUE_LENGTH
         BackboneInterface.BackboneInterface.DP_IC_HIGH_WM  = max(4, int((BackboneInterface.BackboneInterface.DP_IC_HIGH_WM_PCT/100.0) * dql))
         BackboneInterface.BackboneInterface.DP_IC_MID_WM   = max(2, int((BackboneInterface.BackboneInterface.DP_IC_MID_WM_PCT/100.0)  * dql))
         BackboneInterface.BackboneInterface.DP_IC_LOW_WM   = max(0, int((BackboneInterface.BackboneInterface.DP_IC_LOW_WM_PCT/100.0)  * dql))
 
+        RNS.Transport.ensure_identity()
         self.__start_local_interface()
 
         if self.is_shared_instance or self.is_standalone_instance:
@@ -1542,6 +1591,7 @@ class Reticulum:
 
                     if path == "interface_stats":          self.rpc_return(conn, self.get_interface_stats())
                     if path == "rate_table":               self.rpc_return(conn, self.get_rate_table())
+                    if path == "known_destinations":       self.rpc_return(conn, self.get_known_destinations())
                     if path == "next_hop_if_name":         self.rpc_return(conn, self.get_next_hop_if_name(call["destination_hash"]))
                     if path == "next_hop":                 self.rpc_return(conn, self.get_next_hop(call["destination_hash"]))
                     if path == "first_hop_timeout":        self.rpc_return(conn, self.get_first_hop_timeout(call["destination_hash"]))
@@ -1906,6 +1956,10 @@ class Reticulum:
             stats["txb"]         = RNS.Transport.traffic_txb
             stats["rxs"]         = RNS.Transport.speed_rx
             stats["txs"]         = RNS.Transport.speed_tx
+            stats["lrxb"]        = RNS.Transport.link_rxb
+            stats["ltxb"]        = RNS.Transport.link_txb
+            stats["lrxs"]        = RNS.Transport.link_speed_rx
+            stats["ltxs"]        = RNS.Transport.link_speed_tx
             stats["frxb"]        = RNS.Transport.filtered_rxb
             stats["ftxb"]        = RNS.Transport.filtered_txb
             stats["frxs"]        = RNS.Transport.filtered_speed_rx
@@ -1992,7 +2046,9 @@ class Reticulum:
                               "via": RNS.Transport.path_table[dst_hash][1], "hops": path_hops,
                               "expires": RNS.Transport.path_table[dst_hash][3], "value": dst_value,
                               "used": RNS.Transport.path_table[dst_hash][7], "lr_cost": lr_cost,
-                              "interface": str(RNS.Transport.path_table[dst_hash][5]) }
+                              "interface": str(RNS.Transport.path_table[dst_hash][5]),
+                              "interface_hash": RNS.Transport.path_table[dst_hash][5].get_hash(),
+                              "state": RNS.Transport.get_path_state(dst_hash) }
                     path_table.append(entry)
 
             return path_table
@@ -2016,6 +2072,25 @@ class Reticulum:
                     rate_table.append(entry)
 
             return rate_table
+
+    def get_known_destinations(self):
+        if self.is_connected_to_shared_instance:
+            try:
+                rpc_connection = self.get_rpc_client()
+                rpc_connection.send_bytes(mp.packb({"get": "known_destinations"}))
+                response = mp.unpackb(rpc_connection.recv_bytes())
+                return response
+            except Exception as e:
+                RNS.log(f"Shared instance RPC failed while getting known destinations: {e}", RNS.LOG_ERROR)
+                return {}
+
+        else:
+            known_destinations = {}
+            with RNS.Identity.known_destinations_lock:
+                for dst_hash in RNS.Identity.known_destinations:
+                    known_destinations[dst_hash] = RNS.Identity.known_destinations[dst_hash]
+
+            return known_destinations
 
     def drop_path(self, destination):
         if self.is_connected_to_shared_instance:

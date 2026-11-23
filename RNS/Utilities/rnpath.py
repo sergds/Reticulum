@@ -101,8 +101,8 @@ def parse_hash(input_str):
 
 def program_setup(configdir, table, rates, drop, destination_hexhash, verbosity, timeout, drop_queues,
                   drop_via, max_hops, remote=None, management_identity=None, remote_timeout=RNS.Transport.PATH_REQUEST_TIMEOUT,
-                  blackholed=False, blackhole=False, unblackhole=False, blackhole_duration=None, blackhole_reason=None,
-                  remote_blackhole_list=False, remote_blackhole_list_filter=None, usage=False, no_output=False, json=False):
+                  blackholed=False, blackhole=False, unblackhole=False, blackhole_duration=None, blackhole_reason=None, remote_blackhole_list=False, remote_blackhole_list_filter=None,
+                  active=False, usage=False, vias=False, expinfo=False, min_value=None, no_output=False, analyze=False, capture=None, json=False):
 
     global remote_link, reticulum
     reticulum = RNS.Reticulum(configdir = configdir, loglevel = 3+verbosity)
@@ -242,6 +242,10 @@ def program_setup(configdir, table, rates, drop, destination_hexhash, verbosity,
             print(f"Could not unblackhole identity: {e}")
             exit(20)
     
+    elif analyze:
+        analyze_tables(path_table=reticulum.get_path_table(), rate_table=reticulum.get_rate_table(),
+                       link_distribution=reticulum.get_link_distribution(), capture=capture)
+
     elif table:
         destination_hash = None
         if destination_hexhash != None:
@@ -292,14 +296,26 @@ def program_setup(configdir, table, rates, drop, destination_hexhash, verbosity,
             for path in table:
                 if destination_hash == None or destination_hash == path["hash"]:
                     displayed += 1
+                    if min_value:
+                        if not path["value"]: continue
+                        if path["value"] < min_value: continue
+
+                    if   path["state"] == RNS.Transport.STATE_RESPONSIVE:   state_str = " (R)"
+                    elif path["state"] == RNS.Transport.STATE_UNRESPONSIVE: state_str = " (u)"
+                    elif path["state"] == RNS.Transport.STATE_UNKNOWN:      state_str = " (?)"
+                    else:                                                   state_str = " (?)"
+
                     exp_str = RNS.timestamp_str(path["expires"])
                     if path["hops"] == 1: m_str = " "
                     else: m_str = "s"
                     if not "used" in path: u_str = ", no usage info"
                     else:
+                        if active and not path["used"]: continue
                         if usage: u_str = f", last used {RNS.prettytime(now-path['used'])} ago" if path["used"] else ", never used"
                         else: u_str = ""
-                    print(f"{RNS.prettyhexrep(path['hash'])} {path['hops']:>3}h via {RNS.prettyhexrep(path['via'])} on {path['interface']} expires in {RNS.prettytime(path['expires']-now, compact=True)} (dv:{RNS.prettycost(path['value'])}/lc:{RNS.prettycost(path['lr_cost'])}){u_str}")
+                    via_str = f" via {RNS.prettyhexrep(path['via'])}" if vias else ""
+                    exp_str = f" expires in {RNS.prettytime(path['expires']-now, compact=True)}" if expinfo else ""
+                    print(f"{RNS.prettyhexrep(path['hash'])} {path['hops']:>3}h{state_str}{via_str} on {path['interface']}{exp_str} (dv:{RNS.prettycost(path['value'])}/lc:{RNS.prettycost(path['lr_cost'])}){u_str}")
 
             if destination_hash != None and displayed == 0:
                 print("No path known")
@@ -496,8 +512,12 @@ def main():
         parser.add_argument("--config", action="store", default=None, help="path to alternative Reticulum config directory", type=str)
         parser.add_argument("--version", action="version", version="rnpath {version}".format(version=__version__))
         parser.add_argument("-t", "--table", action="store_true", help="show all known paths", default=False)
+        parser.add_argument("-a", "--active", action="store_true", help="show in-use paths only", default=False)
         parser.add_argument("-u", "--usage", action="store_true", help="show path usage time", default=False)
+        parser.add_argument("-V", "--vias", action="store_true", help="show via transport IDs", default=False)
+        parser.add_argument("-E", "--expiry", action="store_true", help="show path expiry times", default=False)
         parser.add_argument("-m", "--max", action="store", metavar="hops", type=int, help="maximum hops to filter path table by", default=None)
+        parser.add_argument("-M", "--min-value", action="store", metavar="value", type=float, help="minimum value to filter path table by", default=None)
         parser.add_argument("-r", "--rates", action="store_true", help="show announce rate info", default=False)
         parser.add_argument("-d", "--drop", action="store_true", help="remove the path to a destination", default=False)
         parser.add_argument("-D", "--drop-announces", action="store_true", help="drop all queued announces", default=False)
@@ -509,10 +529,12 @@ def main():
         parser.add_argument("-b", "--blackholed", action="store_true", help="list blackholed identities", default=False)
         parser.add_argument("-B", "--blackhole", action="store_true", help="blackhole identity", default=False)
         parser.add_argument("-U", "--unblackhole", action="store_true", help="unblackhole identity", default=False)
-        parser.add_argument(      "--duration", action="store", type=float, help="duration of blackhole enforcement in hours", default=None)
-        parser.add_argument(      "--reason", action="store", type=str, help="reason for blackholing identity", default=None)
+        parser.add_argument(      "--duration", action="store", metavar="hours", type=float, help="duration of blackhole enforcement in hours", default=None)
+        parser.add_argument(      "--reason", action="store", metavar="reason", type=str, help="reason for blackholing identity", default=None)
         parser.add_argument("-p", "--blackholed-list", action="store_true", help="view published blackhole list for remote transport instance", default=False)
         parser.add_argument("-j", "--json", action="store_true", help="output in JSON format", default=False)
+        parser.add_argument("-A", "--analyze", action="store_true", help="Analyze tables", default=False)
+        parser.add_argument("--capture", action="store", metavar="path", type=str, help="path to capture file for analyze mode", default=None)
         parser.add_argument("destination", nargs="?", default=None, help="hexadecimal hash of the destination", type=str)
         parser.add_argument("list_filter", nargs="?", default=None, help="filter for remote blackhole list view", type=str)
         parser.add_argument('-v', '--verbose', action='count', default=0)
@@ -522,22 +544,111 @@ def main():
         if args.config: configarg = args.config
         else: configarg = None
 
-        if not args.drop_announces and not args.table and not args.rates and not args.destination and not args.drop_via and not args.blackholed:
+        if not args.drop_announces and not args.table and not args.rates and not args.destination and not args.drop_via and not args.blackholed and not args.analyze:
             print("")
             parser.print_help()
             print("")
         else:
-            program_setup(configdir = configarg, table = args.table, rates = args.rates, drop = args.drop, destination_hexhash = args.destination,
-                          verbosity = args.verbose, timeout = args.w, drop_queues = args.drop_announces, drop_via = args.drop_via, max_hops = args.max,
+            program_setup(configdir=configarg, table=args.table, rates=args.rates, drop=args.drop, destination_hexhash=args.destination,
+                          verbosity=args.verbose, timeout=args.w, drop_queues=args.drop_announces, drop_via=args.drop_via, max_hops=args.max, min_value=args.min_value,
                           remote=args.R, management_identity=args.i, remote_timeout=args.W, blackholed=args.blackholed, blackhole=args.blackhole,
                           unblackhole=args.unblackhole, blackhole_duration=args.duration, blackhole_reason=args.reason, remote_blackhole_list=args.blackholed_list,
-                          remote_blackhole_list_filter=args.list_filter, usage=args.usage, json=args.json)
+                          remote_blackhole_list_filter=args.list_filter, usage=args.usage, vias=args.vias, active=args.active, expinfo=args.expiry,
+                          analyze=args.analyze, capture=args.capture, json=args.json)
 
             sys.exit(0)
 
     except KeyboardInterrupt:
         print("")
         exit()
+
+def analyze_tables(path_table=None, rate_table=None, link_distribution=None, capture=None):
+    print("Not yet implemented")
+    exit()
+
+    # if not path_table:
+    #     print("No path table to analyze")
+    #     exit()
+
+    # else:
+    #     print(f"Analyzing tables...")
+
+    #     # TODO: If a `capture` path is specified, we save and (if existing) load from
+    #     # this file, so that `rnpath --analyze` can be run at intervals, and continuously
+    #     # collect data, instead of only providing an at-the-moment snapshot view.
+
+    #     # Locally initialize announce cache to be able to
+    #     # fetch full announce packet data
+    #     if RNS.Transport.owner.is_connected_to_shared_instance: RNS.Transport.init_announce_cache()
+    #     tm = RNS.Transport.destination_type_map
+    #     total = len(path_table)
+    #     destinations      = {}
+    #     unresolvable      = 0
+    #     unknown_types     = set()
+    #     known_types       = set()
+    #     unknown_type_dsts = 0
+    #     known_type_dsts   = 0
+    #     for path in path_table:
+    #         dst_hash  = path["hash"]
+    #         dst_hops  = path["hops"]
+    #         last_used = path["used"]
+    #         name_hash = None
+    #         kd_entry  = RNS.Identity.known_destinations.get(dst_hash, None)
+
+    #         # New destinations may have arrived after our initial known
+    #         # destinations snapshot, which is fine, we just count the few
+    #         # that miss here for now.
+    #         if not kd_entry: unresolvable += 1
+
+    #         # Enrich data with information from cached announces
+    #         else:
+    #             dst_value       = kd_entry[6]
+    #             dst_lr_cost     = kd_entry[7]
+    #             announce_hash   = kd_entry[1]
+    #             announce_packet = RNS.Transport.get_cached_packet(announce_hash, packet_type="announce")
+    #             if not announce_packet: unresolvable += 1; continue
+
+    #             try: announce_packet.unpack()
+    #             except: unresolvable +=1; continue
+
+    #             keysize       = RNS.Identity.KEYSIZE//8
+    #             name_hash_len = RNS.Identity.NAME_HASH_LENGTH//8
+    #             name_hash     = announce_packet.data[keysize:keysize+name_hash_len]
+    #             app_data      = kd_entry[3] or RNS.Identity.recall_app_data(dst_hash, _no_use=True)
+    #             app_data_len  = len(app_data) if app_data else None # No len counting if no app data
+
+    #             if name_hash in tm: known_type_dsts   += 1; known_types.add(name_hash)
+    #             else:               unknown_type_dsts += 1; unknown_types.add(name_hash)
+
+    #             # TODO: Create actual data structure for use in analysis
+    #             entry = {}
+
+    #             destinations[dst_hash] = entry
+
+    #     if rate_table:
+    #         # TODO: Incorporate and enrich with data from rate table
+    #         pass
+
+    #     if link_distribution:
+    #         # TODO: Incorporate and enrich with link distribution data
+    #         pass
+
+    #     # TODO: Actually analyze tables
+    #     pass
+
+    #     # TODO: Actually print a comprehensive, beautifully formatted
+    #     # overview, charts and data. This is a stub.
+    #     print(f"Known types        : {len(known_types)}")
+    #     print(f"Unknown types      : {len(unknown_types)}")
+    #     print(f"Total types        : {len(known_types)+len(unknown_types)}")
+    #     print(f"Known type dests   : {known_type_dsts}")
+    #     print(f"Unknown type dests : {unknown_type_dsts}")
+    #     print(f"Total type dests   : {known_type_dsts+unknown_type_dsts}")
+
+    #     # TODO: Ensure we get the terminal width if possible, and fall back to
+    #     # a sensible default if not, so everything is rendered beautifully.
+
+    #     exit()
 
 def pretty_date(time=False):
     from datetime import datetime
